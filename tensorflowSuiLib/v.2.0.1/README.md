@@ -30,12 +30,48 @@ sui client call \
   --module model \
   --function initialize_model \
   --args \
-    "[\"layer1\", \"layer2\"]" \
-    "[4, 3]" \
-    "[3, 2]" \
+    "[[4, 3], [3, 2]]" \
     "[[10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 12], [15, 15, 15, 15, 15, 6]]" \
     "[[0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1], [0, 1, 0, 1, 0, 1]]" \
     "[[5, 5, 5], [7, 7]]" \
     "[[0, 0, 0], [0, 0]]" \
     "2" 
 ```
+
+### Model Schema
+
+The `initialize_model` function accepts parameters that match the following schema:
+
+```json
+{
+  "layerDimensions": [
+    [4, 3],  # 첫 번째 레이어: 입력 4, 출력 3
+    [3, 2]   # 두 번째 레이어: 입력 3, 출력 2
+  ],
+  "weightsMagnitudes": [
+    [10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 12],
+    [15, 15, 15, 15, 15, 6]
+  ],
+  "weightsSigns": [
+    [0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1],
+    [0, 1, 0, 1, 0, 1]
+  ],
+  "biasesMagnitudes": [
+    [5, 5, 5],
+    [7, 7]
+  ],
+  "biasesSigns": [
+    [0, 0, 0],
+    [0, 0]
+  ],
+  "scale": 2
+}
+```
+
+Where:
+- `layerDimensions`: A list of [input_dimension, output_dimension] pairs for each layer
+- `weightsMagnitudes`: Magnitude values for weights in each layer
+- `weightsSigns`: Sign values (0 for positive, 1 for negative) for weights in each layer
+- `biasesMagnitudes`: Magnitude values for biases in each layer
+- `biasesSigns`: Sign values (0 for positive, 1 for negative) for biases in each layer
+- `scale`: Fixed point scale factor (2^scale)

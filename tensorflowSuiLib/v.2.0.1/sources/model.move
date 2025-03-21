@@ -23,12 +23,12 @@ module tensorflowsui::model {
     const EBiasesVectorLengthMismatch: u64 = 1009;
     /// @dev Error when scale value is 0
     const EInvalidScale: u64 = 1010;
+    /// @dev Error when layer dimensions vector is empty
+    const ELayerDimensionsEmpty: u64 = 1011;
 
     /// @notice Custom model creation function - Creates a model with user provided data
     /// @param graph Neural network graph
-    /// @param layer_names List of layer names
-    /// @param layer_in_dims List of input dimensions for each layer
-    /// @param layer_out_dims List of output dimensions for each layer
+    /// @param layer_dimensions List of [input_dim, output_dim] pairs for each layer
     /// @param weights_magnitudes List of weight magnitudes for each layer
     /// @param weights_signs List of weight signs for each layer
     /// @param biases_magnitudes List of bias magnitudes for each layer
@@ -36,9 +36,7 @@ module tensorflowsui::model {
     /// @param scale Fixed point scale (2^scale)
     public fun create_model(
         graph: &mut SignedFixedGraph, 
-        layer_names: vector<vector<u8>>,
-        layer_in_dims: vector<u64>,
-        layer_out_dims: vector<u64>,
+        layer_dimensions: vector<vector<u64>>,
         weights_magnitudes: vector<vector<u64>>,
         weights_signs: vector<vector<u64>>,
         biases_magnitudes: vector<vector<u64>>,
@@ -48,11 +46,10 @@ module tensorflowsui::model {
       // Validate scale value
       assert!(scale > 0, EInvalidScale);
       
-      let layer_count = vector::length(&layer_names);
+      let layer_count = vector::length(&layer_dimensions);
+      assert!(layer_count > 0, ELayerDimensionsEmpty);
       
       // Check if all vectors have same length
-      assert!(layer_count == vector::length(&layer_in_dims), EInputDimMismatch);
-      assert!(layer_count == vector::length(&layer_out_dims), EOutputDimMismatch);
       assert!(layer_count == vector::length(&weights_magnitudes), EWeightsMagnitudeMismatch);
       assert!(layer_count == vector::length(&weights_signs), EWeightsSignMismatch);
       assert!(layer_count == vector::length(&biases_magnitudes), EBiasesMagnitudeMismatch);
@@ -60,9 +57,21 @@ module tensorflowsui::model {
       
       let mut i = 0;
       while (i < layer_count) {
-        let layer_name = *vector::borrow(&layer_names, i);
-        let in_dim = *vector::borrow(&layer_in_dims, i);
-        let out_dim = *vector::borrow(&layer_out_dims, i);
+        // Create layer name based on index
+        let mut layer_name = vector::empty<u8>();
+        vector::append(&mut layer_name, b"layer_");
+        
+        // Convert index to string and append to layer_name
+        // This is a simple implementation - in production, you might want to use a proper number to string conversion
+        let index_char = (i as u8) + 48; // Convert to ASCII digit
+        vector::push_back(&mut layer_name, index_char);
+        
+        // Get layer dimensions
+        let dim_pair = vector::borrow(&layer_dimensions, i);
+        assert!(vector::length(dim_pair) == 2, EInputDimMismatch); // Make sure the dimension pair is [in_dim, out_dim]
+        
+        let in_dim = *vector::borrow(dim_pair, 0);
+        let out_dim = *vector::borrow(dim_pair, 1);
         
         // Validate weights and bias vector lengths
         let weights_mag = vector::borrow(&weights_magnitudes, i);
@@ -95,9 +104,7 @@ module tensorflowsui::model {
     }
 
     /// @notice Custom model initialization function - Initializes a model with user provided data
-    /// @param layer_names List of layer names
-    /// @param layer_in_dims List of input dimensions for each layer
-    /// @param layer_out_dims List of output dimensions for each layer
+    /// @param layer_dimensions List of [input_dim, output_dim] pairs for each layer
     /// @param weights_magnitudes List of weight magnitudes for each layer
     /// @param weights_signs List of weight signs for each layer
     /// @param biases_magnitudes List of bias magnitudes for each layer
@@ -105,9 +112,7 @@ module tensorflowsui::model {
     /// @param scale Fixed point scale (2^scale)
     /// @param ctx Transaction context
     entry public fun initialize_model(
-        layer_names: vector<vector<u8>>,
-        layer_in_dims: vector<u64>,
-        layer_out_dims: vector<u64>,
+        layer_dimensions: vector<vector<u64>>,
         weights_magnitudes: vector<vector<u64>>,
         weights_signs: vector<vector<u64>>,
         biases_magnitudes: vector<vector<u64>>,
@@ -119,9 +124,7 @@ module tensorflowsui::model {
       
       create_model(
           &mut graph, 
-          layer_names,
-          layer_in_dims,
-          layer_out_dims,
+          layer_dimensions,
           weights_magnitudes,
           weights_signs,
           biases_magnitudes,
