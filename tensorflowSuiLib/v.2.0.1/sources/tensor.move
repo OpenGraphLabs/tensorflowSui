@@ -55,7 +55,7 @@ module tensorflowsui::tensor {
 
     }
 
-    public fun create_signed_fixed(shape : vector<u64> , magnitude : vector<u64>, sign : vector<u64>, scale : u64) : SignedFixedTensor {
+    public fun create_signed_fixed_tensor(shape : vector<u64> , magnitude : vector<u64>, sign : vector<u64>, scale : u64) : SignedFixedTensor {
 
         let _count = num_elements(&shape);
         
@@ -197,7 +197,7 @@ public fun to_string(tensor: &SignedFixedTensor): vector<u8> {
         input_sign: vector<u64>,
         scale: u64
     ): SignedFixedTensor {
-        create_signed_fixed(shape, input_magnitude, input_sign, scale)
+        create_signed_fixed_tensor(shape, input_magnitude, input_sign, scale)
     }
 
     public fun to_input(tensor: &SignedFixedTensor): (vector<u64>, vector<u64>) {
@@ -243,7 +243,7 @@ public fun add(a: &SignedFixedTensor, b: &SignedFixedTensor): SignedFixedTensor 
             i = i + 1;
         };
 
-        create_signed_fixed(copy a.shape, out_mag, out_sign, a.scale)
+        create_signed_fixed_tensor(copy a.shape, out_mag, out_sign, a.scale)
     }
 
     public fun subtract(a: &SignedFixedTensor, b: &SignedFixedTensor): SignedFixedTensor {
@@ -260,7 +260,7 @@ public fun add(a: &SignedFixedTensor, b: &SignedFixedTensor): SignedFixedTensor 
             i = i + 1;
         };
 
-        let neg_b = create_signed_fixed(
+        let neg_b = create_signed_fixed_tensor(
             copy b.shape,
             b.magnitude,
             flipped_sign,
@@ -295,7 +295,7 @@ public fun add(a: &SignedFixedTensor, b: &SignedFixedTensor): SignedFixedTensor 
             i = i + 1;
         };
 
-        create_signed_fixed(copy a.shape, out_mag, out_sign, s * 2)
+        create_signed_fixed_tensor(copy a.shape, out_mag, out_sign, s * 2)
     }
 public fun divide(a: &SignedFixedTensor, b: &SignedFixedTensor): SignedFixedTensor {
         assert!(a.scale == b.scale, 1301);
@@ -325,7 +325,7 @@ public fun divide(a: &SignedFixedTensor, b: &SignedFixedTensor): SignedFixedTens
             i = i + 1;
         };
 
-        create_signed_fixed(copy a.shape, out_mag, out_sign, s)
+        create_signed_fixed_tensor(copy a.shape, out_mag, out_sign, s)
     }
 
     fun is_a_greater_than_b(a_sign: u64, a_mag: u64,
@@ -373,7 +373,7 @@ public fun divide(a: &SignedFixedTensor, b: &SignedFixedTensor): SignedFixedTens
         vector::push_back(&mut out_mag, max_mag);
         vector::push_back(&mut out_sign, max_sgn);
 
-        create_signed_fixed(out_shape, out_mag, out_sign, t.scale)
+        create_signed_fixed_tensor(out_shape, out_mag, out_sign, t.scale)
     }
 
     public fun argmax(t: &SignedFixedTensor): u64 {

@@ -1,5 +1,4 @@
 module tensorflowsui::graph {
-    use sui::event;
     use std::debug;
     
     const NONE : u64= 0;
@@ -8,9 +7,8 @@ module tensorflowsui::graph {
 
     use tensorflowsui::tensor::{
         SignedFixedTensor, get_scale,get_magnitude,get_shape,get_sign,
-        create_signed_fixed,
-        scale_up,from_input,
-        argmax
+        create_signed_fixed_tensor,
+        scale_up,
     };
 
     public struct Result_arg has copy, drop {
@@ -18,10 +16,9 @@ module tensorflowsui::graph {
     }
 
     public struct SignedFixedLayer has copy, drop, store {
-        name: vector<u8>,
         layer_type: vector<u8>,
-        in_dim: u64,
-        out_dim: u64,
+        in_dimension: u64,
+        out_dimension: u64,
         weight_tensor: SignedFixedTensor,  
         bias_tensor: SignedFixedTensor,    
     }
@@ -48,121 +45,64 @@ module tensorflowsui::graph {
     }
 
     public fun get_layer_in_dim(layer: &SignedFixedLayer): u64 {
-        layer.in_dim
+        layer.in_dimension
     }
 
     public fun get_layer_out_dim(layer: &SignedFixedLayer): u64 {
-        layer.out_dim
+        layer.out_dimension
     }
 
-    public fun get_layer_name(layer: &SignedFixedLayer): vector<u8> {
-        layer.name
-    }
-
-
-    public fun DenseSignedFixed(
+    public fun build_signed_fixed_layer(
         graph: &mut SignedFixedGraph,
-        in_dim: u64,
-        out_dim: u64,
-        name: vector<u8>,
+        in_dimension: u64,
+        out_dimension: u64,
         scale: u64
-    ): SignedFixedLayer {
-        let weight_count = in_dim * out_dim;
-        let mut mag_w = vector::empty<u64>();
-        let mut sgn_w = vector::empty<u64>();
+    ) {
+        let weight_count = in_dimension * out_dimension;
+        let mut weight_magnitudes = vector::empty<u64>();
+        let mut weight_signs = vector::empty<u64>();
 
         let mut i = 0;
         while (i < weight_count) {
-            vector::push_back(&mut mag_w, 1);  
-            vector::push_back(&mut sgn_w, 0);  
+            vector::push_back(&mut weight_magnitudes, 1);  
+            vector::push_back(&mut weight_signs, 0);  
             i = i + 1;
         };
 
-        let weight_tensor = create_signed_fixed(
-            vector[in_dim, out_dim],
-            mag_w,
-            sgn_w,
+        let weight_tensor = create_signed_fixed_tensor(
+            vector[in_dimension, out_dimension],
+            weight_magnitudes,
+            weight_signs,
             scale
         );
 
         // bias
-        let mut mag_b = vector::empty<u64>();
-        let mut sgn_b = vector::empty<u64>();
+        let mut bias_magnitudes = vector::empty<u64>();
+        let mut bias_signs = vector::empty<u64>();
 
         let mut j = 0;
-        while (j < out_dim) {
-            vector::push_back(&mut mag_b, 0);
-            vector::push_back(&mut sgn_b, 0);
+        while (j < out_dimension) {
+            vector::push_back(&mut bias_magnitudes, 0);
+            vector::push_back(&mut bias_signs, 0);
             j = j + 1;
         };
-        let bias_tensor = create_signed_fixed(
-            vector[out_dim],
-            mag_b,
-            sgn_b,
+        let bias_tensor = create_signed_fixed_tensor(
+            vector[out_dimension],
+            bias_magnitudes,
+            bias_signs,
             scale
         );
 
         let layer = SignedFixedLayer {
-            name,
+            // TODO(jarry): what is the purpose of layer_type?
             layer_type: b"dense_sf",
-            in_dim,
-            out_dim,
+            in_dimension,
+            out_dimension,
             weight_tensor,
             bias_tensor
         };
 
         vector::push_back(&mut graph.layers, layer);
-        layer
-    }
-
-    public fun set_layer_weights_signed_fixed(
-        graph: &mut SignedFixedGraph,
-        name: vector<u8>,
-        weight_magnitude: vector<u64>,
-        weight_sign: vector<u64>,
-        bias_magnitude: vector<u64>,
-        bias_sign: vector<u64>,
-        in_dim: u64,
-        out_dim: u64,
-        scale: u64
-    ) {
-        let len = vector::length(&graph.layers);
-        let mut i = 0;
-        while (i < len) {
-            let layer = vector::borrow_mut(&mut graph.layers, i);
-            if (layer.name == name) {
-
-                layer.weight_tensor = create_signed_fixed(
-                    vector[in_dim, out_dim],
-                    weight_magnitude,
-                    weight_sign,
-                    scale
-                );
-                layer.bias_tensor = create_signed_fixed(
-                    vector[out_dim],
-                    bias_magnitude,
-                    bias_sign,
-                    scale
-                );
-
-                return
-            };
-            i = i + 1;
-        };
-
-        abort 4444
-    }
-
-    public fun get_layer_signed_fixed(graph: &SignedFixedGraph, name: vector<u8>): &SignedFixedLayer {
-        let mut i = 0;
-        while (i < vector::length(&graph.layers)) {
-            let layer = vector::borrow(&graph.layers, i);
-            if (layer.name == name) {
-                return layer;
-            };
-            i = i + 1;
-        };
-        abort 9999
     }
 
 
@@ -250,7 +190,7 @@ module tensorflowsui::graph {
             b_idx = b_idx + 1;
         };
 
-        create_signed_fixed(out_shape, out_mag, out_sign, s)
+        create_signed_fixed_tensor(out_shape, out_mag, out_sign, s)
     }
 
 fun apply_relu_element(sign: u64, mag: u64): (u64, u64) {
@@ -348,7 +288,7 @@ public fun apply_dense_signed_fixed_2(
         b_idx = b_idx + 1;
     };
 
-    create_signed_fixed(out_shape, out_mag, out_sign, s)
+    create_signed_fixed_tensor(out_shape, out_mag, out_sign, s)
 }
 
     fun signed_add_element(
@@ -577,7 +517,6 @@ public fun apply_dense_signed_fixed_2(
     }
 
     public struct PartialDense has  copy, drop, store {
-        name: vector<u8>,
         accum_mag: vector<u64>,   
         accum_sign: vector<u64>,  
         out_dim: u64,
@@ -596,22 +535,8 @@ public fun apply_dense_signed_fixed_2(
             id: object::new(ctx),
             partials: vector::empty<PartialDense>()
         }
-        
     }
-       public fun get_partial_by_name_mut(
-        pd: &mut PartialDenses,
-        name: vector<u8>
-    ): &mut PartialDense {
-        let mut i = 0;
-        while (i < vector::length(&pd.partials)) {
-            let p = vector::borrow_mut(&mut pd.partials, i);
-            if (p.name == name) {
-                return p
-            };
-            i = i + 1;
-        };
-        abort 9999
-    }
+
     entry public fun add_partial_for_layer(
         graph_obj: &SignedFixedGraph,
         layer_idx: u64,
@@ -620,7 +545,6 @@ public fun apply_dense_signed_fixed_2(
         let layer_ref = get_layer_at(graph_obj, layer_idx);
         let in_dim = get_layer_in_dim(layer_ref);
         let out_dim = get_layer_out_dim(layer_ref);
-        let name = get_layer_name(layer_ref);
         let s = 2;
 
         let mut mag = vector::empty<u64>();
@@ -633,7 +557,6 @@ public fun apply_dense_signed_fixed_2(
         };
 
         let new_partial = PartialDense {
-            name,
             accum_mag: mag,
             accum_sign: sgn,
             out_dim,
@@ -656,226 +579,6 @@ public fun apply_dense_signed_fixed_2(
             i = i + 1;
         }
     }
-
-    public fun ptb_graph_2_compute_chunk(
-    graph_obj: &SignedFixedGraph,
-    p_denses: &mut PartialDenses,
-    partial_name: vector<u8>,           
-    input_tensor: &SignedFixedTensor,
-    activation_type: u64,               
-    start_j: u64,
-    end_j: u64
-) {
-    
-    let partial_ref = get_partial_by_name_mut(p_denses, partial_name);
-    let layer = get_layer_signed_fixed(graph_obj, partial_name);
-    let w = get_weight_tensor(layer);
-    let b = get_bias_tensor(layer);
-    let out_dim = partial_ref.out_dim;  
-    let s = get_scale(input_tensor);          
-
-    let batch = *vector::borrow(&get_shape(input_tensor), 0);
-    let in_dim = *vector::borrow(&get_shape(input_tensor), 1);
-
-    let pmag = &mut partial_ref.accum_mag;
-    let psgn = &mut partial_ref.accum_sign;
-
-    assert!(end_j <= out_dim, 9999);
-
-    let mut b_idx = 0;
-    while (b_idx < batch) {
-        let mut j_idx = start_j;
-        while (j_idx <= end_j) {
-            let index = b_idx*out_dim + j_idx;
-            let mut acc_sgn = 0;
-            let mut acc_mag = 0;
-
-            let mut i_idx = 0;
-            while (i_idx < in_dim) {
-                let in_index = b_idx*in_dim + i_idx;
-                let w_index  = i_idx*out_dim + j_idx;
-
-                let in_s = *vector::borrow(&get_sign(input_tensor), in_index);
-                let in_m = *vector::borrow(&get_magnitude(input_tensor), in_index);
-
-                let w_s = *vector::borrow(&get_sign(w), w_index);
-                let w_m = *vector::borrow(&get_magnitude(w), w_index);
-                let mul_s = if (in_s == w_s) { 0 } else {1};
-                let mul_m = in_m * w_m;
-
-                let (acc2_s, acc2_m) = signed_add_element(acc_sgn, acc_mag, mul_s, mul_m);
-                acc_sgn = acc2_s;
-                acc_mag = acc2_m;
-
-                i_idx = i_idx + 1;
-            };
-
-            let factor = scale_up(1, s);
-            let b_s = *vector::borrow(&get_sign(b), j_idx);
-            let b_m = *vector::borrow(&get_magnitude(b), j_idx);
-            let b_m_2s = b_m * factor;
-
-            let (acc3_s, acc3_m) = signed_add_element(acc_sgn, acc_mag, b_s, b_m_2s);
-
-            let (final_s, final_m) = if (activation_type == RELU /* RELU */) {
-                apply_relu_element(acc3_s, acc3_m)
-            } else {
-                (acc3_s, acc3_m)
-            };
-
-            let divisor = scale_up(1, s);
-            let rounded_m = final_m / divisor;
-            *vector::borrow_mut(psgn, index) = final_s;
-            *vector::borrow_mut(pmag, index) = rounded_m;
-
-            j_idx = j_idx + 1;
-        };
-        b_idx = b_idx + 1;
-    };
-}
-
-
-entry public fun split_chunk_compute(
-    graph_obj: &SignedFixedGraph,
-    pd: &mut PartialDenses,
-    partial_name: vector<u8>,
-    input_magnitude: vector<u64>,input_sign: vector<u64>,
-    activation_type: u64,
-    start_j: u64,
-    end_j: u64
-) {
-
-    let partial_ref = get_partial_by_name_mut(pd, partial_name);
-    let in_dim = partial_ref.in_dim;  
-    let s = partial_ref.scale; 
-    let inp_shape = vector[1,in_dim];
-    let input_tensor = from_input(inp_shape, input_magnitude, input_sign, s);
-             
-    ptb_graph_2_compute_chunk(graph_obj, pd, partial_name, &input_tensor, activation_type, start_j, end_j);
-
-}
-
-entry public fun split_chunk_finalize(
-            pd: &mut PartialDenses,
-    partial_name: vector<u8>
-): (vector<u64>, vector<u64>, u64) {
-    let partial_ref = get_partial_by_name_mut(pd, partial_name);
-    let out_dim = partial_ref.out_dim;
-    let s = partial_ref.scale;       
-    let accum_mag = partial_ref.accum_mag; 
-    let accum_sgn = partial_ref.accum_sign;
-    let mut out_shape = vector::empty<u64>();
-    vector::push_back(&mut out_shape, 1);
-    vector::push_back(&mut out_shape, out_dim);
-
-    let result_tensor = create_signed_fixed(
-        out_shape,
-        accum_mag,
-        accum_sgn,
-        s
-    );
-
-    let results_mag = get_magnitude(&result_tensor);
-    let results_sign = get_sign(&result_tensor);
-    (results_mag, results_sign, s)
-}
-
-    entry public fun ptb_graph_compute_chunk(
-        graph_obj: &SignedFixedGraph,
-        pd: &mut PartialDenses,
-        partial_name : vector<u8>,
-        input_magnitude: vector<u64>,
-        input_sign: vector<u64>,
-        start_j: u64,
-        end_j: u64
-    ) {
-
-        let partial_ref = get_partial_by_name_mut(pd, partial_name);
-        let layer = get_layer_signed_fixed(graph_obj, partial_name);
-        let w = get_weight_tensor(layer);  // shape=[in_dim, out_dim], scale(?)
-
-        let out_dim = partial_ref.out_dim;
-        let in_dim  = partial_ref.in_dim;
-
-        assert!(end_j <= out_dim, 9999);
-
-        let pmag = &mut partial_ref.accum_mag;
-        let psgn = &mut partial_ref.accum_sign;
-
-        let mut j = start_j;
-        while (j <= end_j) {
-            let old_s = *vector::borrow(psgn, j);
-            let old_m = *vector::borrow(pmag, j);
-
-            let mut new_sgn = old_s;
-            let mut new_mag = old_m;
-
-            let mut i = 0;
-            while (i < in_dim) {
-                let in_s = *vector::borrow(&input_sign, i);
-                let in_m = *vector::borrow(&input_magnitude, i);
-
-                let w_index = i*out_dim + j;
-                let w_s = *vector::borrow(&get_sign(w), w_index);
-                let w_m = *vector::borrow(&get_magnitude(w), w_index);
-
-                // 곱 => scale=2*s (가정)
-                let mul_s = if (in_s == w_s) { 0 } else { 1 };
-                let mul_m = in_m * w_m;
-
-                let (res_s, res_m) = signed_add_element(new_sgn, new_mag, mul_s, mul_m);
-                new_sgn = res_s;
-                new_mag = res_m;
-
-                i = i + 1;
-            };
-            *vector::borrow_mut(psgn, j) = new_sgn;
-            *vector::borrow_mut(pmag, j) = new_mag;
-
-            j = j + 1;
-        };
-    }
-
-
-    entry public fun ptb_layer(graph: &SignedFixedGraph,
-        input_magnitude: vector<u64>,input_sign: vector<u64>,scale: u64, name: vector<u8>
-        ) : (vector<u64>, vector<u64>, u64){
-        let layer = get_layer_signed_fixed(graph, name);
-        let inp_shape = vector[1,get_layer_in_dim(layer)];
-        let input_tensor = from_input(inp_shape, input_magnitude, input_sign, scale);
-
-        let result = apply_dense_signed_fixed_2(
-                        &input_tensor,
-                        get_weight_tensor(layer), 
-                        get_bias_tensor(layer),
-                        1
-                    );
-
-        let results_mag = get_magnitude(&result);
-        let results_sign = get_sign(&result);
-        (results_mag, results_sign, scale)
-    }
-
-    entry public fun ptb_layer_arg_max(graph: &SignedFixedGraph,
-        input_magnitude: vector<u64>,input_sign: vector<u64>,scale: u64, name: vector<u8>
-        ) : u64{
-        let layer = get_layer_signed_fixed(graph, name);
-        let inp_shape = vector[1,get_layer_in_dim(layer)];
-        let input_tensor = from_input(inp_shape, input_magnitude, input_sign, scale);
-
-        let result = apply_dense_signed_fixed_2(
-                        &input_tensor,
-                        get_weight_tensor(layer), 
-                        get_bias_tensor(layer),
-                        1
-                    );
-
-        let label = argmax(&result);
-
-        event::emit(Result_arg { value:label });
-        label
-    }
-
 
     public entry fun init_partials(graph: &SignedFixedGraph, ctx: &mut TxContext) {
         let mut partials = create_partial_denses(ctx);
