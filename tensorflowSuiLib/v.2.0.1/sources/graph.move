@@ -56,19 +56,13 @@ module tensorflowsui::graph {
         graph: &mut SignedFixedGraph,
         in_dimension: u64,
         out_dimension: u64,
+        weight_magnitudes: vector<u64>,
+        weight_signs: vector<u64>,
+        bias_magnitudes: vector<u64>,
+        bias_signs: vector<u64>,
         scale: u64
     ) {
-        let weight_count = in_dimension * out_dimension;
-        let mut weight_magnitudes = vector::empty<u64>();
-        let mut weight_signs = vector::empty<u64>();
-
-        let mut i = 0;
-        while (i < weight_count) {
-            vector::push_back(&mut weight_magnitudes, 1);  
-            vector::push_back(&mut weight_signs, 0);  
-            i = i + 1;
-        };
-
+        // Create weight tensor with user-provided values
         let weight_tensor = create_signed_fixed_tensor(
             vector[in_dimension, out_dimension],
             weight_magnitudes,
@@ -76,16 +70,7 @@ module tensorflowsui::graph {
             scale
         );
 
-        // bias
-        let mut bias_magnitudes = vector::empty<u64>();
-        let mut bias_signs = vector::empty<u64>();
-
-        let mut j = 0;
-        while (j < out_dimension) {
-            vector::push_back(&mut bias_magnitudes, 0);
-            vector::push_back(&mut bias_signs, 0);
-            j = j + 1;
-        };
+        // Create bias tensor with user-provided values
         let bias_tensor = create_signed_fixed_tensor(
             vector[out_dimension],
             bias_magnitudes,
@@ -94,7 +79,6 @@ module tensorflowsui::graph {
         );
 
         let layer = SignedFixedLayer {
-            // TODO(jarry): what is the purpose of layer_type?
             layer_type: b"dense_sf",
             in_dimension,
             out_dimension,
@@ -104,7 +88,6 @@ module tensorflowsui::graph {
 
         vector::push_back(&mut graph.layers, layer);
     }
-
 
     public fun apply_dense_signed_fixed(
         input_tensor: &SignedFixedTensor,
@@ -246,7 +229,7 @@ public fun apply_dense_signed_fixed_2(
                 let w_s  = *vector::borrow(&get_sign(weight_tensor), w_index);
                 let w_m  = *vector::borrow(&get_magnitude(weight_tensor), w_index);
 
-                // 곱 => scale=2s
+                // Multiplication (scale=2s)
                 let mul_s = if (in_s == w_s) { 0 } else { 1 };
                 let mul_m = in_m * w_m;
 
