@@ -9,12 +9,11 @@
 https://x.com/SuiNetwork/status/1890575219934523803
 
 ---
-
+Current version: v1.0.2
 join and stay tuned for our future fantastic updates.
 
 Our Twitter: https://x.com/OpenGraph_Labs
 Our Contact: contacts@opengraphlabs.xyz
-
 
 # Tensorflowsui
 
