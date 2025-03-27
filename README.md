@@ -9,7 +9,9 @@
 https://x.com/SuiNetwork/status/1890575219934523803
 
 ---
-Current version: v1.0.2
+Current version: v2.0.1
+
+
 join and stay tuned for our future fantastic updates.
 
 Our Twitter: https://x.com/OpenGraph_Labs
