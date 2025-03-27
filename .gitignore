@@ -1,6 +1,6 @@
 # Sui Move build artifacts
 build/
-.dev/v.1.0.2/
+dev/v.1.0.2/
 *.bak
 
 # IDE and editor files
