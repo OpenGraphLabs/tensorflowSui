@@ -234,6 +234,7 @@ module tensorflowsui::model {
             let activation_type = if (i == layer_count - 1) { 0 } else { 1 }; // 0=None, 1=ReLU
             
             // Apply layer computation
+            // TODO: select computation function based on layer type (dense, conv, etc.)
             current_tensor = graph::apply_dense_signed_fixed_2(
                 &current_tensor,
                 weight_tensor,
