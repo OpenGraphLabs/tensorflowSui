@@ -34,6 +34,9 @@ module tensorflowsui::model {
     const EModelHasNoGraphs: u64 = 1014;
     /// @dev Error when layer index is out of bounds
     const ELayerIndexOutOfBounds: u64 = 1015;
+    /// @dev Error when dimension index is out of bounds
+    const EDimensionIndexOutOfBounds: u64 = 1016;
+
 
     public struct Model has key {
       id: UID,
@@ -86,38 +89,38 @@ module tensorflowsui::model {
         ctx: &mut TxContext,
     ) {
       // Validate scale value
-      assert!(scale > 0, EInvalidScale);
-      
-      let layer_count = vector::length(&layer_dimensions);
-      assert!(layer_count > 0, ELayerDimensionsEmpty);
-      
+        assert!(scale > 0, EInvalidScale);
+        
+        let layer_count = vector::length(&layer_dimensions);
+        assert!(layer_count > 0, ELayerDimensionsEmpty);
+        
       // Check if all vectors have same length
-      assert!(layer_count == vector::length(&weights_magnitudes), EWeightsMagnitudeMismatch);
-      assert!(layer_count == vector::length(&weights_signs), EWeightsSignMismatch);
-      assert!(layer_count == vector::length(&biases_magnitudes), EBiasesMagnitudeMismatch);
-      assert!(layer_count == vector::length(&biases_signs), EBiasesSignMismatch);
+        assert!(layer_count == vector::length(&weights_magnitudes), EWeightsMagnitudeMismatch);
+        assert!(layer_count == vector::length(&weights_signs), EWeightsSignMismatch);
+        assert!(layer_count == vector::length(&biases_magnitudes), EBiasesMagnitudeMismatch);
+        assert!(layer_count == vector::length(&biases_signs), EBiasesSignMismatch);
 
       // Convert vector<u8> to String
-      let name_string = string::utf8(name);
-      let description_string = string::utf8(description);
-      let task_type_string = string::utf8(task_type);
+        let name_string = string::utf8(name);
+        let description_string = string::utf8(description);
+        let task_type_string = string::utf8(task_type);
 
-      let mut model = Model {
-        id: object::new(ctx),
-        name: name_string,
-        description: description_string,
-        task_type: task_type_string,
-        graphs: vector::empty<SignedFixedGraph>(),
-        partial_denses: vector::empty<PartialDenses>(),
-        scale,
-      };
+        let mut model = Model {
+            id: object::new(ctx),
+            name: name_string,
+            description: description_string,
+            task_type: task_type_string,
+            graphs: vector::empty<SignedFixedGraph>(),
+            partial_denses: vector::empty<PartialDenses>(),
+            scale,
+        };
 
       // NOTE(jarry): currently, we handle only one graph
-      let graph = graph::create_signed_graph(ctx);
-      vector::push_back(&mut model.graphs, graph);
-      
-      let mut layer_idx = 0;
-      while (layer_idx < layer_count) {
+        let graph = graph::create_signed_graph(ctx);
+        vector::push_back(&mut model.graphs, graph);
+        
+        let mut layer_idx = 0;
+        while (layer_idx < layer_count) {
         // Get layer dimensions
         let dimension_pair = vector::borrow(&layer_dimensions, layer_idx);
         assert!(vector::length(dimension_pair) == 2, EDimensionPairMismatch); // Make sure the dimension pair is [in_dim, out_dim]
@@ -149,13 +152,13 @@ module tensorflowsui::model {
         );
         
         layer_idx = layer_idx + 1;
-      };
-      
-      let mut partials = graph::create_partial_denses(ctx);
-      graph::add_partials_for_all_but_last(&model.graphs[0], &mut partials);
-      vector::push_back(&mut model.partial_denses, partials);
+    };
+    
+        let mut partials = graph::create_partial_denses(ctx);
+        graph::add_partials_for_all_but_last(&model.graphs[0], &mut partials);
+        vector::push_back(&mut model.partial_denses, partials);
 
-      transfer::transfer(model, tx_context::sender(ctx));
+        transfer::transfer(model, tx_context::sender(ctx));
     }
 
     /// @notice Helper function to get model name as String
@@ -288,20 +291,6 @@ module tensorflowsui::model {
         max_idx
     }
     
-    /// @notice Run inference and return only the argmax index (for classification tasks)
-    /// @param model Model object to run inference on
-    /// @param input_magnitude Magnitude values of the input vector
-    /// @param input_sign Sign values of the input vector (0 for positive, 1 for negative)
-    /// @return Index of the predicted class (argmax of the output)
-    entry public fun predict_class(
-        model: &Model,
-        input_magnitude: vector<u64>,
-        input_sign: vector<u64>
-    ): u64 {
-        let (_, _, class_idx) = predict(model, input_magnitude, input_sign);
-        class_idx
-    }
-    
     /// @notice Process a single layer and emit result as event (gas efficient version)
     /// @param model Model object to run inference on
     /// @param layer_idx Index of the layer to process
@@ -330,6 +319,102 @@ module tensorflowsui::model {
         // Get the target layer
         let layer = graph::get_layer_at(graph, layer_idx);
         let input_dim = graph::get_layer_in_dim(layer);
+        
+        // Validate input dimensions
+        assert!(vector::length(&input_magnitude) == input_dim, EInputDimensionMismatch);
+        assert!(vector::length(&input_sign) == input_dim, EInputDimensionMismatch);
+        
+        // Create input tensor (batch size 1)
+        let input_shape = vector[1, input_dim];
+        let input_tensor = create_signed_fixed_tensor(
+            input_shape,
+            input_magnitude,
+            input_sign,
+            model.scale
+        );
+        
+        // Get layer tensors
+        let weight_tensor = graph::get_weight_tensor(layer);
+        let bias_tensor = graph::get_bias_tensor(layer);
+        
+        // Apply activation function (ReLU for all layers except the last one)
+        let activation_type = if (is_last_layer) { 0 } else { 1 }; // 0=None, 1=ReLU
+        
+        // Apply layer computation
+        let result_tensor = graph::apply_dense_signed_fixed_2(
+            &input_tensor,
+            weight_tensor,
+            bias_tensor,
+            activation_type
+        );
+        
+        // Extract results from the layer output tensor
+        let result_mag = tensor::get_magnitude(&result_tensor);
+        let result_sign = tensor::get_sign(&result_tensor);
+        
+        // For the last layer, calculate the argmax
+        let mut argmax_idx = option::none();
+        
+        if (is_last_layer) {
+            // Find argmax if we have results
+            let max_idx = find_argmax(&result_mag, &result_sign);
+            
+            // Emit prediction completed event
+            event::emit(PredictionCompleted {
+                model_id: object::id_address(model),
+                output_magnitude: result_mag,
+                output_sign: result_sign,
+                argmax_idx: max_idx,
+            });
+            
+            argmax_idx = option::some(max_idx);
+        };
+
+        // Emit layer computed event
+        event::emit(LayerComputed {
+            model_id: object::id_address(model),
+            layer_idx,
+            output_magnitude: result_mag,
+            output_sign: result_sign,
+            activation_type,
+        });
+        
+        (result_mag, result_sign, argmax_idx)
+    }
+
+    // TODO: implement partial dense layer computation
+    /// @notice Process a single layer and emit result as event (gas efficient version)
+    /// @param model Model object to run inference on
+    /// @param layer_idx Index of the layer to process
+    /// @param dimension_idx Index of the dimension to process
+    /// @param input_magnitude Magnitude values of the input vector
+    /// @param input_sign Sign values of the input vector
+    /// @return Tuple of (magnitude vector, sign vector, optional argmax index for final layer)
+    entry public fun predict_layer_partial(
+        model: &Model,
+        layer_idx: u64,
+        dimension_idx: u64,
+        input_magnitude: vector<u64>,
+        input_sign: vector<u64>
+    ): (vector<u64>, vector<u64>, Option<u64>) {
+        // Validate model has at least one graph
+        assert!(vector::length(&model.graphs) > 0, EModelHasNoGraphs);
+        
+        // Get the first graph (currently we only support one graph per model)
+        let graph = vector::borrow(&model.graphs, 0);
+        
+        // Check if layer_idx is valid
+        let layer_count = graph::get_layer_count(graph);
+        assert!(layer_idx < layer_count, ELayerIndexOutOfBounds);
+        
+        // Check if this is the last layer
+        let is_last_layer = layer_idx == layer_count - 1;
+        
+        // Get the target layer
+        let layer = graph::get_layer_at(graph, layer_idx);
+        let input_dim = graph::get_layer_in_dim(layer);
+
+        assert!(dimension_idx < input_dim, EDimensionIndexOutOfBounds);
         
         // Validate input dimensions
         assert!(vector::length(&input_magnitude) == input_dim, EInputDimensionMismatch);
