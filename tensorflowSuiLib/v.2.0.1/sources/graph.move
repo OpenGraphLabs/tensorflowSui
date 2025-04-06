@@ -1,26 +1,29 @@
 module tensorflowsui::graph {
     use std::debug;
+    use std::string;
     
-    const NONE : u64= 0;
+    // const NONE : u64= 0;
     const RELU : u64= 1;
-    const SOFTMAX : u64 = 2;
+    // const SOFTMAX : u64 = 2;
 
-    use tensorflowsui::tensor::{
-        SignedFixedTensor, get_scale,get_magnitude,get_shape,get_sign,
-        create_signed_fixed_tensor,
-        scale_up,
-    };
+    // use tensorflowsui::tensor::{
+    //     SignedFixedTensor, get_scale,get_magnitude,get_shape,get_sign,
+    //     scale_up,
+    // };
+    use tensorflowsui::tensor;
 
-    public struct Result_arg has copy, drop {
-        value : u64
-    }
-
+    // Define error constants at the top of the module
+    const ERR_DIMENSION_MISMATCH: u64 = 10001;
+    const ERR_BIAS_DIMENSION_MISMATCH: u64 = 10002;
+    const ERR_SCALE_MISMATCH: u64 = 10003;
+    const ERR_SCALE_MISMATCH_BIAS: u64 = 10004;
+    
     public struct SignedFixedLayer has copy, drop, store {
         layer_type: vector<u8>,
         in_dimension: u64,
         out_dimension: u64,
-        weight_tensor: SignedFixedTensor,  
-        bias_tensor: SignedFixedTensor,    
+        weight_tensor: tensor::SignedFixedTensor,  
+        bias_tensor: tensor::SignedFixedTensor,    
     }
 
     public struct SignedFixedGraph has key, store {
@@ -36,11 +39,11 @@ module tensorflowsui::graph {
         vector::borrow(&graph.layers, idx)
     }
 
-    public fun get_weight_tensor(layer: &SignedFixedLayer): &SignedFixedTensor {
+    public fun get_weight_tensor(layer: &SignedFixedLayer): &tensor::SignedFixedTensor {
         &layer.weight_tensor
     }
 
-    public fun get_bias_tensor(layer: &SignedFixedLayer): &SignedFixedTensor {
+    public fun get_bias_tensor(layer: &SignedFixedLayer): &tensor::SignedFixedTensor {
         &layer.bias_tensor
     }
 
@@ -63,7 +66,7 @@ module tensorflowsui::graph {
         scale: u64
     ) {
         // Create weight tensor with user-provided values
-        let weight_tensor = create_signed_fixed_tensor(
+        let weight_tensor = tensor::create_signed_fixed_tensor(
             vector[in_dimension, out_dimension],
             weight_magnitudes,
             weight_signs,
@@ -71,7 +74,7 @@ module tensorflowsui::graph {
         );
 
         // Create bias tensor with user-provided values
-        let bias_tensor = create_signed_fixed_tensor(
+        let bias_tensor = tensor::create_signed_fixed_tensor(
             vector[out_dimension],
             bias_magnitudes,
             bias_signs,
@@ -89,204 +92,155 @@ module tensorflowsui::graph {
         vector::push_back(&mut graph.layers, layer);
     }
 
-    public fun apply_dense_signed_fixed(
-        input_tensor: &SignedFixedTensor,
-        weight_tensor: &SignedFixedTensor,
-        bias_tensor: &SignedFixedTensor
-    ): SignedFixedTensor {
+    /// @notice Performs dense layer computation with optional activation function
+    /// @param input_tensor Input tensor (batch_size x input_dimension)
+    /// @param weight_tensor Weight tensor (input_dimension x output_dimension)
+    /// @param bias_tensor Bias tensor (output_dimension)
+    /// @param activation_type Activation function to apply (0=None, 1=ReLU, 2=Softmax)
+    /// @return Result tensor (batch_size x output_dimension)
+    public fun compute_dense_layer(
+        input_tensor: &tensor::SignedFixedTensor,
+        weight_tensor: &tensor::SignedFixedTensor,
+        bias_tensor: &tensor::SignedFixedTensor,
+        activation_type: u64
+    ): tensor::SignedFixedTensor {
+        // 1. Extract tensor dimensions and validate
+        let batch_size = *vector::borrow(&tensor::get_shape(input_tensor), 0);
+        let input_dim = *vector::borrow(&tensor::get_shape(input_tensor), 1);
+        let weight_input_dim = *vector::borrow(&tensor::get_shape(weight_tensor), 0);
+        let output_dim = *vector::borrow(&tensor::get_shape(weight_tensor), 1);
+        let bias_dim = *vector::borrow(&tensor::get_shape(bias_tensor), 0);
 
-        let batch = *vector::borrow(&get_shape(input_tensor), 0);
-        let in_dim = *vector::borrow(&get_shape(input_tensor), 1);
-        let w_in = *vector::borrow(&get_shape(weight_tensor), 0);
-        let w_out= *vector::borrow(&get_shape(weight_tensor), 1);
-        let b_out= *vector::borrow(&get_shape(bias_tensor), 0);
+        // Validate dimensions match
+        assert!(input_dim == weight_input_dim, ERR_DIMENSION_MISMATCH);
+        assert!(output_dim == bias_dim, ERR_BIAS_DIMENSION_MISMATCH);
 
-        assert!(in_dim == w_in, 10001);
-        assert!(w_out == b_out, 10002);
+        // Validate scales match
+        let scale = tensor::get_scale(input_tensor);
+        assert!(scale == tensor::get_scale(weight_tensor), ERR_SCALE_MISMATCH);
+        assert!(scale == tensor::get_scale(bias_tensor), ERR_SCALE_MISMATCH_BIAS);
 
-        let s =  get_scale(input_tensor);
-        assert!(s == get_scale(weight_tensor), 10003);
-        assert!(s == get_scale(bias_tensor),   10004);
+        // 2. Prepare output tensor
+        let output_shape = vector[batch_size, output_dim];
 
-        let mut out_shape = vector::empty<u64>();
-        vector::push_back(&mut out_shape, batch);
-        vector::push_back(&mut out_shape, w_out);
+        let mut output_magnitude = vector::empty<u64>();
+        let mut output_sign = vector::empty<u64>();
 
-        let mut out_mag = vector::empty<u64>();
-        let mut out_sign= vector::empty<u64>();
+        // Pre-compute scale factor
+        let scale_factor = compute_scale_factor(scale);
 
-        let mut b_idx = 0;
-        while (b_idx < batch) {
-            let mut j_idx = 0;
-            while (j_idx < w_out) {
+        // 3. Compute output for each batch item and output dimension
+        let mut batch_idx = 0;
+        while (batch_idx < batch_size) {
+            // Process each output neuron (dimension)
+            let mut output_idx = 0;
+            while (output_idx < output_dim) {
+                // Initialize accumulators for weighted sum
+                let mut acc_sign = 0; // 0: positive, 1: negative
+                let mut acc_magnitude = 0;
+                
+                // Compute weighted sum across input dimensions
+                let mut input_idx = 0;
+                while (input_idx < input_dim) {
+                    // Calculate flat indices for accessing 1D tensor storage
+                    let input_flat_idx = batch_idx * input_dim + input_idx;
+                    let weight_flat_idx = input_idx * output_dim + output_idx;
+                    
+                    // Extract input and weight values
+                    let input_sign = *vector::borrow(&tensor::get_sign(input_tensor), input_flat_idx);
+                    let input_magnitude = *vector::borrow(&tensor::get_magnitude(input_tensor), input_flat_idx);
+                    let weight_sign = *vector::borrow(&tensor::get_sign(weight_tensor), weight_flat_idx);
+                    let weight_magnitude = *vector::borrow(&tensor::get_magnitude(weight_tensor), weight_flat_idx);
 
-                let mut acc_sgn = 0;
-                let mut acc_mag = 0;
-                let mut i_idx = 0;
-                while (i_idx < in_dim) {
-                    let in_index = b_idx*in_dim + i_idx;
-                    let w_index  = i_idx*w_out + j_idx;
-                                                   
-                    let in_s = *vector::borrow(& get_sign(input_tensor), in_index);
-                    let in_m = *vector::borrow(&get_magnitude(input_tensor), in_index);
-                    let w_s  = *vector::borrow(&get_sign(weight_tensor), w_index);
-                    let w_m  = *vector::borrow(&get_magnitude(weight_tensor), w_index);
+                    // Perform signed multiplication (XOR for sign)
+                    let product_sign = if (input_sign == weight_sign) { 0 } else { 1 };
+                    let product_magnitude = input_magnitude * weight_magnitude;
 
-                    let mul_s = if (in_s == w_s) { 0 } else { 1 };
-                    let mul_m = in_m * w_m;
+                    // Scale down the product to match the correct scale
+                    // Product is currently at scale^2, so divide by scale_factor to bring back to scale
+                    let scaled_product_magnitude = product_magnitude / scale_factor;
 
-                    let (acc2_s, acc2_m) = signed_add_element(
-                        acc_sgn, acc_mag,
-                        mul_s,   mul_m
+                    // Add product to accumulator
+                    let (new_acc_sign, new_acc_magnitude) = signed_add_element(
+                        acc_sign, acc_magnitude,
+                        product_sign, scaled_product_magnitude
                     );
-                    acc_sgn = acc2_s;
-                    acc_mag = acc2_m;
+                    acc_sign = new_acc_sign;
+                    acc_magnitude = new_acc_magnitude;
 
-                    i_idx = i_idx + 1;
+                    input_idx = input_idx + 1;
                 };
 
-                let factor = scale_up(1, s);
-                let b_s  = *vector::borrow(&get_sign(bias_tensor), j_idx);
-                let b_m  = *vector::borrow(&get_magnitude(bias_tensor), j_idx);
-                let b_m_2s = b_m * factor;
-
-                let (acc3_s, acc3_m) = signed_add_element(
-                    acc_sgn, acc_mag,
-                    b_s,     b_m_2s
+                // Add bias (no need to scale bias, it's already at the correct scale)
+                let bias_sign = *vector::borrow(&tensor::get_sign(bias_tensor), output_idx);
+                let bias_magnitude = *vector::borrow(&tensor::get_magnitude(bias_tensor), output_idx);
+                
+                // Add bias to accumulated value
+                let (final_sign, final_magnitude) = signed_add_element(
+                    acc_sign, acc_magnitude,
+                    bias_sign, bias_magnitude
                 );
-                let mut final_s = acc3_s;
-                let mut final_m = acc3_m;
-                if (final_s == 1) {
-                    final_s = 0;
-                    final_m = 0;
+
+                // Apply activation function if specified
+                let mut result_sign = final_sign;
+                let mut result_magnitude = final_magnitude;
+                
+                if (activation_type == RELU && result_sign == 1) {
+                    // For ReLU, zero out negative values
+                    result_sign = 0;
+                    result_magnitude = 0;
                 };
+                // TODO: Softmax activation would be implemented here if needed
 
+                // Result is already at the correct scale, no need to scale down again
+                vector::push_back(&mut output_sign, result_sign);
+                vector::push_back(&mut output_magnitude, result_magnitude);
 
-                let divisor = scale_up(1, s);
-                let rounded_m = final_m / divisor;
-
-                vector::push_back(&mut out_sign, final_s);
-                vector::push_back(&mut out_mag,  rounded_m);
-
-                j_idx = j_idx + 1;
+                output_idx = output_idx + 1;
             };
-            b_idx = b_idx + 1;
+            batch_idx = batch_idx + 1;
         };
 
-        create_signed_fixed_tensor(out_shape, out_mag, out_sign, s)
+        // Create and return result tensor
+        tensor::create_signed_fixed_tensor(output_shape, output_magnitude, output_sign, scale)
     }
 
-fun apply_relu_element(sign: u64, mag: u64): (u64, u64) {
-    if (sign == 1) {
-        (0, 0)
-    } else {
-        (sign, mag)
-    }
-}
-
-
-public fun apply_dense_signed_fixed_2(
-    input_tensor: &SignedFixedTensor,
-    weight_tensor: &SignedFixedTensor,
-    bias_tensor:   &SignedFixedTensor,
-    activation_type: u64  
-): SignedFixedTensor {
-    let batch = *vector::borrow(&get_shape(input_tensor), 0);
-    let in_dim = *vector::borrow(&get_shape(input_tensor), 1);
-    let w_in = *vector::borrow(&get_shape(weight_tensor), 0);
-    let w_out= *vector::borrow(&get_shape(weight_tensor), 1);
-    let b_out= *vector::borrow(&get_shape(bias_tensor), 0);
-
-    assert!(in_dim == w_in, 10001);
-    assert!(w_out == b_out, 10002);
-
-    let s =  get_scale(input_tensor);
-    assert!(s == get_scale(weight_tensor), 10003);
-    assert!(s == get_scale(bias_tensor),   10004);
-
-    let mut out_shape = vector::empty<u64>();
-    vector::push_back(&mut out_shape, batch);
-    vector::push_back(&mut out_shape, w_out);
-
-    let mut out_mag = vector::empty<u64>();
-    let mut out_sign= vector::empty<u64>();
-
-    let mut b_idx = 0;
-    while (b_idx < batch) {
-        let mut j_idx = 0;
-        while (j_idx < w_out) {
-
-            let mut acc_sgn = 0;
-            let mut acc_mag = 0;
-
-            let mut i_idx = 0;
-            while (i_idx < in_dim) {
-                let in_index = b_idx*in_dim + i_idx;
-                let w_index  = i_idx*w_out + j_idx;
-                                                   
-                let in_s = *vector::borrow(& get_sign(input_tensor), in_index);
-                let in_m = *vector::borrow(&get_magnitude(input_tensor), in_index);
-                let w_s  = *vector::borrow(&get_sign(weight_tensor), w_index);
-                let w_m  = *vector::borrow(&get_magnitude(weight_tensor), w_index);
-
-                // Multiplication (scale=2s)
-                let mul_s = if (in_s == w_s) { 0 } else { 1 };
-                let mul_m = in_m * w_m;
-
-                let (acc2_s, acc2_m) = signed_add_element(
-                    acc_sgn, acc_mag,
-                    mul_s,   mul_m
-                );
-                acc_sgn = acc2_s;
-                acc_mag = acc2_m;
-
-                i_idx = i_idx + 1;
-            };
-
-            let factor = scale_up(1, s);
-            let b_s  = *vector::borrow(&get_sign(bias_tensor), j_idx);
-            let b_m  = *vector::borrow(&get_magnitude(bias_tensor), j_idx);
-            let b_m_2s = b_m * factor;
-
-            let (acc3_s, acc3_m) = signed_add_element(
-                acc_sgn, acc_mag,
-                b_s,     b_m_2s
-            );
-
-            let (final_s, final_m) = if (activation_type == RELU) {
-                apply_relu_element(acc3_s, acc3_m)
-            } else {
-                (acc3_s, acc3_m)
-            };
-
-
-            let divisor = scale_up(1, s);
-            let rounded_m = final_m / divisor;
-
-            vector::push_back(&mut out_sign, final_s);
-            vector::push_back(&mut out_mag,  rounded_m);
-
-            j_idx = j_idx + 1;
-        };
-        b_idx = b_idx + 1;
-    };
-
-    create_signed_fixed_tensor(out_shape, out_mag, out_sign, s)
-}
-
+    /// @notice Helper function to add two signed values
+    /// @param sign1 Sign of first value (0: positive, 1: negative)
+    /// @param magnitude1 Magnitude of first value
+    /// @param sign2 Sign of second value (0: positive, 1: negative)
+    /// @param magnitude2 Magnitude of second value
+    /// @return Tuple of (result_sign, result_magnitude)
     fun signed_add_element(
         s1: u64, m1: u64,
         s2: u64, m2: u64
     ): (u64, u64) {
         if (s1 == s2) {
+            // Same sign: add magnitudes
             (s1, m1 + m2)
         } else {
+            // Different signs: subtract magnitudes
             if (m1 >= m2) {
+                // First value has larger magnitude, keep its sign
                 (s1, m1 - m2)
             } else {
+                // Second value has larger magnitude, use its sign
                 (s2, m2 - m1)
             }
         }
+    }
+
+    /// @notice Helper function to compute scale factor
+    /// @param scale Scale value
+    /// @return 10^scale value
+    fun compute_scale_factor(scale: u64): u64 {
+        let mut factor = 1;
+        let mut i = 0;
+        while (i < scale) {
+            factor = factor * 10;
+            i = i + 1;
+        };
+        factor
     }
 
     public struct Layer has copy, drop {
@@ -432,16 +386,16 @@ public fun apply_dense_signed_fixed_2(
     let input_size = vector::length(&inputs);
     let max_computation = input_size * output_nodes;
 
-        std::debug::print(&std::string::utf8(b"input vector:"));
+        debug::print(&string::utf8(b"input vector:"));
         debug::print(&inputs);
 
-        std::debug::print(&std::string::utf8(b"input number:"));
+        debug::print(&string::utf8(b"input number:"));
         debug::print(&input_size);
         
-        std::debug::print(&std::string::utf8(b"output number:"));
+        debug::print(&string::utf8(b"output number:"));
         debug::print(&output_nodes);
 
-        std::debug::print(&std::string::utf8(b"max computation:"));
+        debug::print(&string::utf8(b"max computation:"));
         debug::print(&max_computation);
 
         debug::print(weights);
@@ -457,13 +411,13 @@ public fun apply_dense_signed_fixed_2(
         while (j < input_size) {
             let weight_index = i * (input_size) + j;
            
-            std::debug::print(&std::string::utf8(b"i number:"));
+            debug::print(&string::utf8(b"i number:"));
             debug::print(&i);
 
-            std::debug::print(&std::string::utf8(b"j number:"));
+            debug::print(&string::utf8(b"j number:"));
             debug::print(&j);
 
-            std::debug::print(&std::string::utf8(b"weigth_index:"));
+            debug::print(&string::utf8(b"weigth_index:"));
             debug::print(& weight_index);
 
             weighted_sum = weighted_sum + (inputs[j] * weights[weight_index]);

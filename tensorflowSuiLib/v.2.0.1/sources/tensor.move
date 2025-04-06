@@ -55,12 +55,10 @@ module tensorflowsui::tensor {
 
     }
 
-    public fun create_signed_fixed_tensor(shape : vector<u64> , magnitude : vector<u64>, sign : vector<u64>, scale : u64) : SignedFixedTensor {
-
+    public fun create_signed_fixed_tensor(shape: vector<u64> , magnitude: vector<u64>, sign: vector<u64>, scale: u64): SignedFixedTensor {
         let _count = num_elements(&shape);
         
         SignedFixedTensor {
-
             shape,
             magnitude,
             sign,

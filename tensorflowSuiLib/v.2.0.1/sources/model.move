@@ -5,7 +5,7 @@
 module tensorflowsui::model {
     use tensorflowsui::graph::{Self, SignedFixedGraph, PartialDenses};
     use std::string::{Self, String};
-    use tensorflowsui::tensor::{Self, create_signed_fixed_tensor};
+    use tensorflowsui::tensor;
     use sui::event;
     
     /// @dev Error when dimension pair does not match
@@ -121,38 +121,38 @@ module tensorflowsui::model {
         
         let mut layer_idx = 0;
         while (layer_idx < layer_count) {
-        // Get layer dimensions
-        let dimension_pair = vector::borrow(&layer_dimensions, layer_idx);
-        assert!(vector::length(dimension_pair) == 2, EDimensionPairMismatch); // Make sure the dimension pair is [in_dim, out_dim]
-        
-        let in_dimension = *vector::borrow(dimension_pair, 0);
-        let out_dimension = *vector::borrow(dimension_pair, 1);
-        
-        // Validate weights and bias vector lengths
-        let weights_magnitude = vector::borrow(&weights_magnitudes, layer_idx);
-        let weights_sign = vector::borrow(&weights_signs, layer_idx);
-        let biases_magnitude = vector::borrow(&biases_magnitudes, layer_idx);
-        let biases_sign = vector::borrow(&biases_signs, layer_idx);
-        
-        assert!(vector::length(weights_magnitude) == vector::length(weights_sign), EWeightsVectorLengthMismatch);
-        assert!(vector::length(biases_magnitude) == vector::length(biases_sign), EBiasesVectorLengthMismatch);
-        assert!(vector::length(weights_magnitude) == in_dimension * out_dimension, EWeightsVectorLengthMismatch);
-        assert!(vector::length(biases_magnitude) == out_dimension, EBiasesVectorLengthMismatch);
-        
-        // Create layer and add to graph with user-provided weights and biases
-        graph::build_signed_fixed_layer(
-            &mut model.graphs[0], 
-            in_dimension, 
-            out_dimension, 
-            *weights_magnitude, 
-            *weights_sign, 
-            *biases_magnitude, 
-            *biases_sign, 
-            scale
-        );
-        
-        layer_idx = layer_idx + 1;
-    };
+            // Get layer dimensions
+            let dimension_pair = vector::borrow(&layer_dimensions, layer_idx);
+            assert!(vector::length(dimension_pair) == 2, EDimensionPairMismatch); // Make sure the dimension pair is [in_dim, out_dim]
+            
+            let in_dimension = *vector::borrow(dimension_pair, 0);
+            let out_dimension = *vector::borrow(dimension_pair, 1);
+            
+            // Validate weights and bias vector lengths
+            let weights_magnitude = vector::borrow(&weights_magnitudes, layer_idx);
+            let weights_sign = vector::borrow(&weights_signs, layer_idx);
+            let biases_magnitude = vector::borrow(&biases_magnitudes, layer_idx);
+            let biases_sign = vector::borrow(&biases_signs, layer_idx);
+            
+            assert!(vector::length(weights_magnitude) == vector::length(weights_sign), EWeightsVectorLengthMismatch);
+            assert!(vector::length(biases_magnitude) == vector::length(biases_sign), EBiasesVectorLengthMismatch);
+            assert!(vector::length(weights_magnitude) == in_dimension * out_dimension, EWeightsVectorLengthMismatch);
+            assert!(vector::length(biases_magnitude) == out_dimension, EBiasesVectorLengthMismatch);
+            
+            // Create layer and add to graph with user-provided weights and biases
+            graph::build_signed_fixed_layer(
+                &mut model.graphs[0], 
+                in_dimension, 
+                out_dimension, 
+                *weights_magnitude, 
+                *weights_sign, 
+                *biases_magnitude, 
+                *biases_sign, 
+                scale
+            );
+            
+            layer_idx = layer_idx + 1;
+        };
     
         let mut partials = graph::create_partial_denses(ctx);
         graph::add_partials_for_all_but_last(&model.graphs[0], &mut partials);
@@ -216,7 +216,7 @@ module tensorflowsui::model {
         
         // Create input tensor (batch size 1)
         let input_shape = vector[1, input_dim];
-        let input_tensor = create_signed_fixed_tensor(
+        let input_tensor = tensor::create_signed_fixed_tensor(
             input_shape,
             input_magnitude,
             input_sign,
@@ -238,7 +238,7 @@ module tensorflowsui::model {
             
             // Apply layer computation
             // TODO: select computation function based on layer type (dense, conv, etc.)
-            current_tensor = graph::apply_dense_signed_fixed_2(
+            current_tensor = graph::compute_dense_layer(
                 &current_tensor,
                 weight_tensor,
                 bias_tensor,
@@ -326,7 +326,7 @@ module tensorflowsui::model {
         
         // Create input tensor (batch size 1)
         let input_shape = vector[1, input_dim];
-        let input_tensor = create_signed_fixed_tensor(
+        let input_tensor = tensor::create_signed_fixed_tensor(
             input_shape,
             input_magnitude,
             input_sign,
@@ -340,8 +340,8 @@ module tensorflowsui::model {
         // Apply activation function (ReLU for all layers except the last one)
         let activation_type = if (is_last_layer) { 0 } else { 1 }; // 0=None, 1=ReLU
         
-        // Apply layer computation
-        let result_tensor = graph::apply_dense_signed_fixed_2(
+        // Compute dense layer
+        let result_tensor = graph::compute_dense_layer(
             &input_tensor,
             weight_tensor,
             bias_tensor,
@@ -382,21 +382,20 @@ module tensorflowsui::model {
         (result_mag, result_sign, argmax_idx)
     }
 
-    // TODO: implement partial dense layer computation
-    /// @notice Process a single layer and emit result as event (gas efficient version)
+    /// @notice Process a single output dimension of a layer (gas efficient version)
     /// @param model Model object to run inference on
     /// @param layer_idx Index of the layer to process
-    /// @param dimension_idx Index of the dimension to process
+    /// @param output_dim_idx Index of the output dimension to process (0 to out_dim-1)
     /// @param input_magnitude Magnitude values of the input vector
     /// @param input_sign Sign values of the input vector
-    /// @return Tuple of (magnitude vector, sign vector, optional argmax index for final layer)
+    /// @return Tuple of (output magnitude scalar, output sign scalar, output dimension index, is last dimension)
     entry public fun predict_layer_partial(
         model: &Model,
         layer_idx: u64,
-        dimension_idx: u64,
+        output_dim_idx: u64,
         input_magnitude: vector<u64>,
         input_sign: vector<u64>
-    ): (vector<u64>, vector<u64>, Option<u64>) {
+    ): (u64, u64, u64, bool) {
         // Validate model has at least one graph
         assert!(vector::length(&model.graphs) > 0, EModelHasNoGraphs);
         
@@ -407,74 +406,140 @@ module tensorflowsui::model {
         let layer_count = graph::get_layer_count(graph);
         assert!(layer_idx < layer_count, ELayerIndexOutOfBounds);
         
-        // Check if this is the last layer
-        let is_last_layer = layer_idx == layer_count - 1;
-        
         // Get the target layer
         let layer = graph::get_layer_at(graph, layer_idx);
         let input_dim = graph::get_layer_in_dim(layer);
-
-        assert!(dimension_idx < input_dim, EDimensionIndexOutOfBounds);
+        let output_dim = graph::get_layer_out_dim(layer);
+        
+        // Validate output dimension index
+        assert!(output_dim_idx < output_dim, EDimensionIndexOutOfBounds);
         
         // Validate input dimensions
         assert!(vector::length(&input_magnitude) == input_dim, EInputDimensionMismatch);
         assert!(vector::length(&input_sign) == input_dim, EInputDimensionMismatch);
         
-        // Create input tensor (batch size 1)
-        let input_shape = vector[1, input_dim];
-        let input_tensor = create_signed_fixed_tensor(
-            input_shape,
-            input_magnitude,
-            input_sign,
-            model.scale
-        );
+        // Check if this is the last layer and last dimension
+        let is_last_layer = layer_idx == layer_count - 1;
+        let is_last_dimension = output_dim_idx == output_dim - 1;
         
-        // Get layer tensors
+        // Get weight and bias tensors
         let weight_tensor = graph::get_weight_tensor(layer);
         let bias_tensor = graph::get_bias_tensor(layer);
         
-        // Apply activation function (ReLU for all layers except the last one)
-        let activation_type = if (is_last_layer) { 0 } else { 1 }; // 0=None, 1=ReLU
+        // Extract weight and bias data
+        let weight_mag = tensor::get_magnitude(weight_tensor);
+        let weight_sign = tensor::get_sign(weight_tensor);
+        let bias_mag = tensor::get_magnitude(bias_tensor);
+        let bias_sign = tensor::get_sign(bias_tensor);
         
-        // Apply layer computation
-        let result_tensor = graph::apply_dense_signed_fixed_2(
-            &input_tensor,
-            weight_tensor,
-            bias_tensor,
-            activation_type
-        );
+        // Calculate single output dimension (dot product for this dimension only)
+        let mut result_mag = 0;
+        let mut result_sign = 0;
         
-        // Extract results from the layer output tensor
-        let result_mag = tensor::get_magnitude(&result_tensor);
-        let result_sign = tensor::get_sign(&result_tensor);
-        
-        // For the last layer, calculate the argmax
-        let mut argmax_idx = option::none();
-        
-        if (is_last_layer) {
-            // Find argmax if we have results
-            let max_idx = find_argmax(&result_mag, &result_sign);
-            
-            // Emit prediction completed event
-            event::emit(PredictionCompleted {
-                model_id: object::id_address(model),
-                output_magnitude: result_mag,
-                output_sign: result_sign,
-                argmax_idx: max_idx,
-            });
-            
-            argmax_idx = option::some(max_idx);
+        // Add bias for this dimension
+        if (output_dim_idx < vector::length(&bias_mag)) {
+            result_mag = *vector::borrow(&bias_mag, output_dim_idx);
+            result_sign = *vector::borrow(&bias_sign, output_dim_idx);
         };
-
-        // Emit layer computed event
-        event::emit(LayerComputed {
+        
+        // Calculate dot product for this single output dimension
+        let mut i = 0;
+        while (i < input_dim) {
+            // Get weight for this connection (input_dim x output_dim_idx)
+            // Flattened index calculation for weight matrix
+            let weight_idx = i * output_dim + output_dim_idx;
+            
+            if (weight_idx < vector::length(&weight_mag)) {
+                let weight_mag_val = *vector::borrow(&weight_mag, weight_idx);
+                let weight_sign_val = *vector::borrow(&weight_sign, weight_idx);
+                
+                // Get input value
+                let input_mag_val = *vector::borrow(&input_magnitude, i);
+                let input_sign_val = *vector::borrow(&input_sign, i);
+                
+                // Multiply
+                let product_mag = input_mag_val * weight_mag_val;
+                let product_sign = input_sign_val ^ weight_sign_val; // XOR for sign multiplication
+                
+                // Apply scaling after multiplication
+                let scaled_product_mag = scale_up(product_mag, model.scale);
+                
+                // Add to result (considering signs)
+                if (result_sign == product_sign) {
+                    // Same sign, simply add magnitudes
+                    result_mag = result_mag + scaled_product_mag;
+                } else {
+                    // Different signs, subtract smaller from larger and determine sign
+                    if (result_mag > scaled_product_mag) {
+                        result_mag = result_mag - scaled_product_mag;
+                        // result_sign stays the same
+                    } else if (result_mag < scaled_product_mag) {
+                        result_mag = scaled_product_mag - result_mag;
+                        result_sign = product_sign; // Take sign of the larger value
+                    } else {
+                        // Equal magnitudes with different signs cancel out
+                        result_mag = 0;
+                        result_sign = 0; // Default to positive for zero
+                    }
+                };
+            };
+            
+            i = i + 1;
+        };
+        
+        // Apply activation if not last layer (ReLU: max(0, x))
+        if (!is_last_layer && result_sign == 1) {
+            // If negative and using ReLU, set to zero
+            result_mag = 0;
+            result_sign = 0;
+        };
+        
+        // Emit partial result event
+        event::emit(LayerPartialComputed {
             model_id: object::id_address(model),
             layer_idx,
+            output_dim_idx,
             output_magnitude: result_mag,
             output_sign: result_sign,
-            activation_type,
+            is_last_dimension
         });
         
-        (result_mag, result_sign, argmax_idx)
+        // If this is the last layer and last dimension, we can calculate the argmax across collected results
+        if (is_last_layer && is_last_dimension) {
+            // Not calculating argmax here - just emit event to indicate completion
+            // Actual argmax should be calculated by client after all dimensions are processed
+            event::emit(PredictionCompleted {
+                model_id: object::id_address(model),
+                output_magnitude: vector[result_mag], // Just the last dimension as example
+                output_sign: vector[result_sign],
+                argmax_idx: 0 // Placeholder, should be calculated client-side
+            });
+        };
+        
+        (result_mag, result_sign, output_dim_idx, is_last_dimension)
+    }
+    
+    /// @notice Helper function to scale up fixed-point values after multiplication
+    /// @param value Value to scale
+    /// @param scale Scale factor
+    /// @return Scaled value
+    fun scale_up(value: u64, scale: u64): u64 {
+        let mut scale_factor = 1;
+        let mut i = 0;
+        while (i < scale) {
+            scale_factor = scale_factor * 10;
+            i = i + 1;
+        };
+        value / scale_factor
+    }
+    
+    /// @notice Event emitted when a partial layer computation is completed
+    public struct LayerPartialComputed has copy, drop {
+        model_id: address,
+        layer_idx: u64,
+        output_dim_idx: u64,
+        output_magnitude: u64,
+        output_sign: u64,
+        is_last_dimension: bool
     }
 }
