@@ -3,7 +3,7 @@ module tensorflowsui::model_tests {
     use sui::test_scenario::{Self as ts};
     use sui::test_utils::{assert_eq};
     use std::debug;
-    use tensorflowsui::graph;
+    use std::string;
     use tensorflowsui::model;
     
     #[test]
@@ -335,15 +335,24 @@ module tensorflowsui::model_tests {
             // Input: [100, 200, 300] (all positive)
             let input_magnitude = vector[100, 200, 300];
             let input_sign = vector[0, 0, 0];
-            
+
+            let mut result_magnitudes = vector::empty<u64>();
+            let mut result_signs = vector::empty<u64>();
+
             // --------- first layer ---------
-            let (result1_mag, result1_sign, dim_idx1, is_last_dim1) = model::predict_layer_partial(
+            let (result1_magnitudes, result1_signs, dim_idx1, is_last_dim1) = model::predict_layer_partial(
                 &model, 
                 0,  // Layer 0 
                 0,  // First output dimension
                 input_magnitude, 
-                input_sign
+                input_sign,
+                result_magnitudes,
+                result_signs
             );
+
+            debug::print(&string::utf8(b"result1_magnitudes"));
+            debug::print(&result1_magnitudes);
+            debug::print(&result1_signs);
             
             // Expected calculation for first dimension of layer 1:
             // Layer 1: [100, 200, 300] * [[1, 2], [3, 4], [5, 6]] + [1, 1] = [2200, 2800] + [1, 1] => scaling [22, 28] + [1, 1] => [23, 29]
@@ -352,33 +361,57 @@ module tensorflowsui::model_tests {
             // Expected calculation for first dimension of layer 1: 23
             assert_eq(dim_idx1, 0);
             assert_eq(is_last_dim1, false); // Not the last dimension
-            assert!(result1_mag == 23, 121); // ~23 with some rounding allowance
-            assert_eq(result1_sign, 0); // Positive
+            assert!(result1_magnitudes[0] == 23, 121); 
+            assert!(result1_signs[0] == 0); // Positive
+            result_magnitudes = result1_magnitudes;
+            result_signs = result1_signs;
             
             // Calculate second output dimension of first layer
-            let (result2_mag, result2_sign, dim_idx2, is_last_dim2) = model::predict_layer_partial(
+            let (result2_magnitudes, result2_signs, dim_idx2, is_last_dim2) = model::predict_layer_partial(
                 &model, 
                 0,  // Layer 0
                 1,  // Second output dimension
                 input_magnitude, 
-                input_sign
+                input_sign,
+                result_magnitudes,
+                result_signs
             );
+
+            debug::print(&string::utf8(b"result2_magnitudes"));
+            debug::print(&result2_magnitudes);
+            debug::print(&result2_signs);
             
             // Expected calculation for second dimension of layer 1: 29
             assert_eq(dim_idx2, 1);
             assert_eq(is_last_dim2, true); // Last dimension of first layer
-            assert!(result2_mag == 29, 122); // ~29 with some rounding allowance
-            assert_eq(result2_sign, 0); // Positive
+            assert!(result2_magnitudes[0] == 23, 122); 
+            assert!(result2_magnitudes[1] == 29, 123);
+            assert!(result2_signs[0] == 0); // Positive
+            assert!(result2_signs[1] == 0); // Positive
+            result_magnitudes = result2_magnitudes;
+            result_signs = result2_signs;
             
             // --------- second layer ---------
+
+            let layer2_input_magnitudes = result_magnitudes;
+            let layer2_input_signs = result_signs;
+            result_magnitudes = vector::empty<u64>();
+            result_signs = vector::empty<u64>();
+
             // Calculate the only output dimension of second layer
-            let (result3_mag, result3_sign, dim_idx3, is_last_dim3) = model::predict_layer_partial(
+            let (result3_magnitudes, result3_signs, dim_idx3, is_last_dim3) = model::predict_layer_partial(
                 &model, 
                 1,  // Layer 1
                 0,  // First (and only) output dimension
-                vector[result1_mag, result2_mag],  // Output from first layer
-                vector[result1_sign, result2_sign]
+                layer2_input_magnitudes,
+                layer2_input_signs,
+                result_magnitudes,
+                result_signs
             );
+
+            debug::print(&string::utf8(b"result3_magnitudes"));
+            debug::print(&result3_magnitudes);
+            debug::print(&result3_signs);
             
             // Expected calculation for second layer:
             // Layer 2: [23, 29] * [[7], [8]] + [1] = [23*7 + 29*8] + [1] = [161 + 232] + [1] = [393] + [1] => scaling [3] + [1] = [4]
@@ -387,15 +420,15 @@ module tensorflowsui::model_tests {
             // Check result
             assert_eq(dim_idx3, 0);
             assert_eq(is_last_dim3, true); // Last dimension of last layer
-            assert!(result3_mag == 4, 123);
-            assert_eq(result3_sign, 0); // Positive
+            assert!(result3_magnitudes[0] == 4, 123);
+            assert!(result3_signs[0] == 0); // Positive
             
             // Compare with full-layer prediction
-            let (layer1_mag, layer1_sign, _) = model::predict_layer(&model, 0, input_magnitude, input_sign);
+            let (layer1_mag, _layer1_sign, _) = model::predict_layer(&model, 0, input_magnitude, input_sign);
             
             // Ensure the dimension-level predictions match the full layer prediction
             assert_eq(vector::length(&layer1_mag), 2);
-            assert!((*vector::borrow(&layer1_mag, 0) == result1_mag) && (*vector::borrow(&layer1_mag, 1) == result2_mag), 124);
+            assert!((*vector::borrow(&layer1_mag, 0) == result2_magnitudes[0]) && (*vector::borrow(&layer1_mag, 1) == result2_magnitudes[1]), 124);
             
             ts::return_to_sender(&scenario, model);
         };
