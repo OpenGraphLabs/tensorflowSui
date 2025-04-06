@@ -388,14 +388,18 @@ module tensorflowsui::model {
     /// @param output_dim_idx Index of the output dimension to process (0 to out_dim-1)
     /// @param input_magnitude Magnitude values of the input vector
     /// @param input_sign Sign values of the input vector
+    /// @param result_magnitudes Vector of accumulated magnitude values
+    /// @param result_signs Vector of accumulated sign values
     /// @return Tuple of (output magnitude scalar, output sign scalar, output dimension index, is last dimension)
     entry public fun predict_layer_partial(
         model: &Model,
         layer_idx: u64,
         output_dim_idx: u64,
         input_magnitude: vector<u64>,
-        input_sign: vector<u64>
-    ): (u64, u64, u64, bool) {
+        input_sign: vector<u64>,
+        mut result_magnitudes: vector<u64>,
+        mut result_signs: vector<u64>,
+    ): (vector<u64>, vector<u64>, u64, bool) {
         // Validate model has at least one graph
         assert!(vector::length(&model.graphs) > 0, EModelHasNoGraphs);
         
@@ -493,6 +497,9 @@ module tensorflowsui::model {
             result_mag = 0;
             result_sign = 0;
         };
+
+        vector::push_back(&mut result_magnitudes, result_mag);
+        vector::push_back(&mut result_signs, result_sign);
         
         // Emit partial result event
         event::emit(LayerPartialComputed {
@@ -506,17 +513,19 @@ module tensorflowsui::model {
         
         // If this is the last layer and last dimension, we can calculate the argmax across collected results
         if (is_last_layer && is_last_dimension) {
-            // Not calculating argmax here - just emit event to indicate completion
-            // Actual argmax should be calculated by client after all dimensions are processed
+            // Calculate argmax from the accumulated result vectors
+            let argmax_idx = find_argmax(&result_magnitudes, &result_signs);
+            
+            // Emit completion event with the full accumulated results
             event::emit(PredictionCompleted {
                 model_id: object::id_address(model),
-                output_magnitude: vector[result_mag], // Just the last dimension as example
-                output_sign: vector[result_sign],
-                argmax_idx: 0 // Placeholder, should be calculated client-side
+                output_magnitude: result_magnitudes,
+                output_sign: result_signs,
+                argmax_idx
             });
         };
         
-        (result_mag, result_sign, output_dim_idx, is_last_dimension)
+        (result_magnitudes, result_signs, output_dim_idx, is_last_dimension)
     }
     
     /// @notice Helper function to scale up fixed-point values after multiplication
