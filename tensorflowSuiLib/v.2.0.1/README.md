@@ -130,6 +130,78 @@ When processing the final layer (when layer_idx is the last layer), this functio
 
 For non-final layers, it emits a `LayerComputed` event, allowing clients to track the intermediate results through events.
 
+### Maximum Gas Efficiency with Output Dimension-Level Inference
+
+For extremely large models or environments with tight gas constraints, TensorflowSui v.2.0.1 offers the most granular level of computation with the `predict_layer_partial()` function. This function computes a single output dimension of a layer at a time, making it possible to run inference on models of any size.
+
+#### Using predict_layer_partial():
+
+This approach processes a single output dimension of a layer and returns just that value. For a layer with 16 output dimensions, you would need to make 16 separate calls to compute the full layer output.
+
+```bash
+sui client call \
+  --package {tensorflowSui_package_id} \
+  --module model \
+  --function predict_layer_partial \
+  --args \
+    "{model_object_id}" \
+    "0" \                # Layer index (starting at 0)
+    "0" \                # Output dimension index (0 to out_dim-1)
+    "[1, 2, 3, 4, 1, 2, 3, 4, 5, 6]" \
+    "[0, 0, 0, 0, 1, 1, 1, 1, 0, 0]" 
+```
+
+The function returns a tuple of four values:
+- Output magnitude (a single scalar value)
+- Output sign (0 for positive, 1 for negative)
+- Output dimension index (same as input)
+- Boolean indicating if this is the last dimension of the layer
+
+#### Computing a full layer dimension by dimension:
+
+To compute a full layer, you need to call the function for each output dimension:
+
+```bash
+# Process first output dimension of layer 0
+sui client call \
+  --package {tensorflowSui_package_id} \
+  --module model \
+  --function predict_layer_partial \
+  --args \
+    "{model_object_id}" \
+    "0" \                # Layer index
+    "0" \                # First output dimension
+    "[1, 2, 3, 4]" \
+    "[0, 0, 0, 0]" 
+
+# Process second output dimension of layer 0
+sui client call \
+  --package {tensorflowSui_package_id} \
+  --module model \
+  --function predict_layer_partial \
+  --args \
+    "{model_object_id}" \
+    "0" \                # Layer index
+    "1" \                # Second output dimension
+    "[1, 2, 3, 4]" \
+    "[0, 0, 0, 0]" 
+
+# ... and so on for all output dimensions
+```
+
+After all output dimensions are processed, you'll need to collect the results client-side to form the input for the next layer. The function emits a `LayerPartialComputed` event that helps track progress.
+
+When processing the final dimension of the final layer, it also emits a `PredictionCompleted` event as a signal that the full computation has been completed.
+
+#### Benefits of dimension-level computation:
+
+1. **Minimal Gas Usage**: Each transaction performs the absolute minimum amount of computation
+2. **Works with Any Model Size**: Even models with thousands of parameters can be run on-chain
+3. **Fine-grained Parallelization**: Multiple output dimensions can be computed in parallel by different users
+4. **Progress Tracking**: Events clearly mark the progress of computation
+
+This approach is ideal for very large models where even layer-by-layer computation might exceed gas limits.
+
 ### Model Schema
 
 The `create_model` function accepts parameters that match the following schema:
