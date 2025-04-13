@@ -62,11 +62,11 @@ module tensorflowsui::dataset {
       annotations: vector<Annotation>,
 
       // The walrus blob id containing the bytes for this resource.
-      blob_id: u256,
+      blob_id: String,
 
       // Contains the hash of the contents of the blob
       // to verify its integrity.
-      blob_hash: u256,
+      blob_hash: String,
 
       // Defines the byte range of the resource contents
       // in the case where multiple resources are stored
@@ -161,8 +161,8 @@ module tensorflowsui::dataset {
   /// Creates a new Data object.
   public fun new_data(
       path: String,
-      blob_id: u256,
-      blob_hash: u256,
+      blob_id: String,
+      blob_hash: String,
       range: Option<Range>,
   ): Data {
       Data {
