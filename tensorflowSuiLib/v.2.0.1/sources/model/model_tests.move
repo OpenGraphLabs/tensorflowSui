@@ -5,9 +5,61 @@ module tensorflowsui::model_tests {
     use std::debug;
     use std::string;
     use tensorflowsui::model;
+
+    fun mock_model(ctx: &mut TxContext) {
+        // Layer dimensions: [[3, 2], [2, 1]]
+        let mut layer_dimensions = vector::empty<vector<u64>>();
+        vector::push_back(&mut layer_dimensions, vector[3, 2]);
+        vector::push_back(&mut layer_dimensions, vector[2, 1]);
+        
+        // First layer weights (3x2): [[1, 2], [3, 4], [5, 6]]
+        // Flattened: [1, 2, 3, 4, 5, 6]
+        let mut weights_magnitudes = vector::empty<vector<u64>>();
+        vector::push_back(&mut weights_magnitudes, vector[1, 2, 3, 4, 5, 6]);
+        
+        // All positive signs
+        let mut weights_signs = vector::empty<vector<u64>>();
+        vector::push_back(&mut weights_signs, vector[0, 0, 0, 0, 0, 0]);
+        
+        // Second layer weights (2x1): [[7], [8]]
+        // Flattened: [7, 8]
+        vector::push_back(&mut weights_magnitudes, vector[7, 8]);
+        vector::push_back(&mut weights_signs, vector[0, 0]);
+        
+        // Biases
+        let mut biases_magnitudes = vector::empty<vector<u64>>();
+        vector::push_back(&mut biases_magnitudes, vector[1, 1]);  // First layer bias
+        vector::push_back(&mut biases_magnitudes, vector[1]);     // Second layer bias
+        
+        // All positive bias signs
+        let mut biases_signs = vector::empty<vector<u64>>();
+        vector::push_back(&mut biases_signs, vector[0, 0]);
+        vector::push_back(&mut biases_signs, vector[0]);
+        
+        let training_dataset_id = object::id_from_address(@0x1);
+        let mut test_dataset_ids = vector::empty<ID>();
+        vector::push_back(&mut test_dataset_ids, object::id_from_address(@0x2));
+        vector::push_back(&mut test_dataset_ids, object::id_from_address(@0x3));
+        
+        model::new_model(
+            string::utf8(b"Test Model"),
+            string::utf8(b"A test model for prediction"),
+            string::utf8(b"classification"),
+            layer_dimensions,
+            weights_magnitudes,
+            weights_signs,
+            biases_magnitudes,
+            biases_signs,
+            2, // Scale factor
+            training_dataset_id,
+            test_dataset_ids,
+            ctx
+        );
+    }
+
     
     #[test]
-    fun test_create_model() {
+    fun test_new_model() {
         let addr = @0x1;
         let mut scenario = ts::begin(addr);
         let ctx = ts::ctx(&mut scenario);
@@ -32,17 +84,24 @@ module tensorflowsui::model_tests {
         let biases_magnitudes = vector[b1_mag, b2_mag];
         let biases_signs = vector[b1_sign, b2_sign];
         
+        let training_dataset_id = object::id_from_address(@0x1);
+        let mut test_dataset_ids = vector::empty<ID>();
+        vector::push_back(&mut test_dataset_ids, object::id_from_address(@0x2));
+        vector::push_back(&mut test_dataset_ids, object::id_from_address(@0x3));
+        
         // Create model
-        model::create_model(
-            b"Test Model",
-            b"A test model for prediction",
-            b"classification",
+        model::new_model(
+            string::utf8(b"Test Model"),
+            string::utf8(b"A test model for prediction"),
+            string::utf8(b"classification"),
             layer_dimensions,
             weights_magnitudes,
             weights_signs,
             biases_magnitudes,
             biases_signs,
             2,
+            training_dataset_id,
+            test_dataset_ids,
             ctx,
         );
         
@@ -57,6 +116,10 @@ module tensorflowsui::model_tests {
             
             // Verify model properties
             assert_eq(model::get_scale(&model_obj), 2);
+            assert_eq(model::get_training_dataset_id(&model_obj), object::id_from_address(@0x1));
+            assert_eq(model::get_test_dataset_count(&model_obj), 2);
+            assert_eq(model::get_test_dataset_ids(&model_obj)[0], object::id_from_address(@0x2));
+            assert_eq(model::get_test_dataset_ids(&model_obj)[1], object::id_from_address(@0x3));
             
             // Return the model
             ts::return_to_sender(&scenario, model_obj);
@@ -73,60 +136,15 @@ module tensorflowsui::model_tests {
         ts::next_tx(&mut scenario, @0x1);
         {
             let ctx = ts::ctx(&mut scenario);
-            
-            // Simple model with 2 layers: 3x2 and 2x1
-            let name = b"Test Model";
-            let description = b"A test model for prediction";
-            let task_type = b"classification";
-            
-            // Layer dimensions: [[3, 2], [2, 1]]
-            let mut layer_dimensions = vector::empty<vector<u64>>();
-            vector::push_back(&mut layer_dimensions, vector[3, 2]);
-            vector::push_back(&mut layer_dimensions, vector[2, 1]);
-            
-            // First layer weights (3x2): [[1, 2], [3, 4], [5, 6]]
-            // Flattened: [1, 2, 3, 4, 5, 6]
-            let mut weights_magnitudes = vector::empty<vector<u64>>();
-            vector::push_back(&mut weights_magnitudes, vector[1, 2, 3, 4, 5, 6]);
-            
-            // All positive signs
-            let mut weights_signs = vector::empty<vector<u64>>();
-            vector::push_back(&mut weights_signs, vector[0, 0, 0, 0, 0, 0]);
-            
-            // Second layer weights (2x1): [[7], [8]]
-            // Flattened: [7, 8]
-            vector::push_back(&mut weights_magnitudes, vector[7, 8]);
-            vector::push_back(&mut weights_signs, vector[0, 0]);
-            
-            // Biases
-            let mut biases_magnitudes = vector::empty<vector<u64>>();
-            vector::push_back(&mut biases_magnitudes, vector[1, 1]);  // First layer bias
-            vector::push_back(&mut biases_magnitudes, vector[1]);     // Second layer bias
-            
-            // All positive bias signs
-            let mut biases_signs = vector::empty<vector<u64>>();
-            vector::push_back(&mut biases_signs, vector[0, 0]);
-            vector::push_back(&mut biases_signs, vector[0]);
-            
-            model::create_model(
-                name,
-                description,
-                task_type,
-                layer_dimensions,
-                weights_magnitudes,
-                weights_signs,
-                biases_magnitudes,
-                biases_signs,
-                2, // Scale factor
-                ctx
-            );
+
+            mock_model(ctx);
         };
-        
+
         // Now test the prediction
         ts::next_tx(&mut scenario, @0x1);
         {
             let model = ts::take_from_sender<model::Model>(&scenario);
-            
+
             // Input: [100, 200, 300] (all positive)
             let input_magnitude = vector[100, 200, 300];
             let input_sign = vector[0, 0, 0];
@@ -168,60 +186,15 @@ module tensorflowsui::model_tests {
         ts::next_tx(&mut scenario, @0x1);
         {
             let ctx = ts::ctx(&mut scenario);
-            
-            // Simple model with 2 layers: 3x2 and 2x1
-            let name = b"Test Model";
-            let description = b"A test model for prediction";
-            let task_type = b"classification";
-            
-            // Layer dimensions: [[3, 2], [2, 1]]
-            let mut layer_dimensions = vector::empty<vector<u64>>();
-            vector::push_back(&mut layer_dimensions, vector[3, 2]);
-            vector::push_back(&mut layer_dimensions, vector[2, 1]);
-            
-            // First layer weights (3x2): [[1, 2], [3, 4], [5, 6]]
-            // Flattened: [1, 2, 3, 4, 5, 6]
-            let mut weights_magnitudes = vector::empty<vector<u64>>();
-            vector::push_back(&mut weights_magnitudes, vector[1, 2, 3, 4, 5, 6]);
-            
-            // All positive signs
-            let mut weights_signs = vector::empty<vector<u64>>();
-            vector::push_back(&mut weights_signs, vector[0, 0, 0, 0, 0, 0]);
-            
-            // Second layer weights (2x1): [[7], [8]]
-            // Flattened: [7, 8]
-            vector::push_back(&mut weights_magnitudes, vector[7, 8]);
-            vector::push_back(&mut weights_signs, vector[0, 0]);
-            
-            // Biases
-            let mut biases_magnitudes = vector::empty<vector<u64>>();
-            vector::push_back(&mut biases_magnitudes, vector[1, 1]);  // First layer bias
-            vector::push_back(&mut biases_magnitudes, vector[1]);     // Second layer bias
-            
-            // All positive bias signs
-            let mut biases_signs = vector::empty<vector<u64>>();
-            vector::push_back(&mut biases_signs, vector[0, 0]);
-            vector::push_back(&mut biases_signs, vector[0]);
-            
-            model::create_model(
-                name,
-                description,
-                task_type,
-                layer_dimensions,
-                weights_magnitudes,
-                weights_signs,
-                biases_magnitudes,
-                biases_signs,
-                2, // Scale factor
-                ctx
-            );
+
+            mock_model(ctx);
         };
-        
-        // Test the layer-by-layer prediction
+
+        // Now test the prediction layer
         ts::next_tx(&mut scenario, @0x1);
         {
             let model = ts::take_from_sender<model::Model>(&scenario);
-            
+
             // Input: [100, 200, 300] (all positive)
             let input_magnitude = vector[100, 200, 300];
             let input_sign = vector[0, 0, 0];
@@ -278,60 +251,15 @@ module tensorflowsui::model_tests {
         ts::next_tx(&mut scenario, @0x1);
         {
             let ctx = ts::ctx(&mut scenario);
-            
-            // Simple model with 2 layers: 3x2 and 2x1
-            let name = b"Test Model";
-            let description = b"A test model for prediction";
-            let task_type = b"classification";
-            
-            // Layer dimensions: [[3, 2], [2, 1]]
-            let mut layer_dimensions = vector::empty<vector<u64>>();
-            vector::push_back(&mut layer_dimensions, vector[3, 2]);
-            vector::push_back(&mut layer_dimensions, vector[2, 1]);
-            
-            // First layer weights (3x2): [[1, 2], [3, 4], [5, 6]]
-            // Flattened: [1, 2, 3, 4, 5, 6]
-            let mut weights_magnitudes = vector::empty<vector<u64>>();
-            vector::push_back(&mut weights_magnitudes, vector[1, 2, 3, 4, 5, 6]);
-            
-            // All positive signs
-            let mut weights_signs = vector::empty<vector<u64>>();
-            vector::push_back(&mut weights_signs, vector[0, 0, 0, 0, 0, 0]);
-            
-            // Second layer weights (2x1): [[7], [8]]
-            // Flattened: [7, 8]
-            vector::push_back(&mut weights_magnitudes, vector[7, 8]);
-            vector::push_back(&mut weights_signs, vector[0, 0]);
-            
-            // Biases
-            let mut biases_magnitudes = vector::empty<vector<u64>>();
-            vector::push_back(&mut biases_magnitudes, vector[1, 1]);  // First layer bias
-            vector::push_back(&mut biases_magnitudes, vector[1]);     // Second layer bias
-            
-            // All positive bias signs
-            let mut biases_signs = vector::empty<vector<u64>>();
-            vector::push_back(&mut biases_signs, vector[0, 0]);
-            vector::push_back(&mut biases_signs, vector[0]);
-            
-            model::create_model(
-                name,
-                description,
-                task_type,
-                layer_dimensions,
-                weights_magnitudes,
-                weights_signs,
-                biases_magnitudes,
-                biases_signs,
-                2, // Scale factor
-                ctx
-            );
+
+            mock_model(ctx);
         };
-        
-        // Test the dimension-level prediction for first layer
+
+        // Now test the prediction layer partial
         ts::next_tx(&mut scenario, @0x1);
         {
             let model = ts::take_from_sender<model::Model>(&scenario);
-            
+
             // Input: [100, 200, 300] (all positive)
             let input_magnitude = vector[100, 200, 300];
             let input_sign = vector[0, 0, 0];
@@ -432,7 +360,7 @@ module tensorflowsui::model_tests {
             
             ts::return_to_sender(&scenario, model);
         };
-        
+
         ts::end(scenario);
     }
 }

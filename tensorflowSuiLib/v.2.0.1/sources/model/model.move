@@ -4,7 +4,8 @@
 /// @title Fully Onchain Neural Network Inference Implementation
 module tensorflowsui::model {
     use tensorflowsui::graph::{Self, SignedFixedGraph, PartialDenses};
-    use std::string::{Self, String};
+    use tensorflowsui::dataset;
+    use std::string::{String};
     use tensorflowsui::tensor;
     use sui::event;
     
@@ -39,13 +40,15 @@ module tensorflowsui::model {
 
 
     public struct Model has key {
-      id: UID,
-      name: String,
-      description: String,
-      task_type: String,
-      graphs: vector<SignedFixedGraph>,
-      partial_denses: vector<PartialDenses>,
-      scale: u64,
+        id: UID,
+        name: String,
+        description: String,
+        task_type: String,
+        graphs: vector<SignedFixedGraph>,
+        partial_denses: vector<PartialDenses>,
+        scale: u64,
+        training_dataset_id: ID,
+        test_dataset_ids: vector<ID>,
     }
     
     /// @notice Event emitted when a layer computation is completed
@@ -75,47 +78,48 @@ module tensorflowsui::model {
     /// @param biases_magnitudes List of bias magnitudes for each layer
     /// @param biases_signs List of bias signs for each layer
     /// @param scale Fixed point scale (2^scale)
+    /// @param training_dataset_id Training dataset ID
+    /// @param test_dataset_ids List of test dataset IDs
     /// @param ctx Transaction context
-    entry public fun create_model(
-        name: vector<u8>,
-        description: vector<u8>,
-        task_type: vector<u8>,
+    entry public fun new_model(
+        name: String,
+        description: String,
+        task_type: String,
         layer_dimensions: vector<vector<u64>>,
         weights_magnitudes: vector<vector<u64>>,
         weights_signs: vector<vector<u64>>,
         biases_magnitudes: vector<vector<u64>>,
         biases_signs: vector<vector<u64>>,
         scale: u64,
+        training_dataset_id: ID,
+        test_dataset_ids: vector<ID>,
         ctx: &mut TxContext,
     ) {
-      // Validate scale value
+        // Validate scale value
         assert!(scale > 0, EInvalidScale);
         
         let layer_count = vector::length(&layer_dimensions);
         assert!(layer_count > 0, ELayerDimensionsEmpty);
         
-      // Check if all vectors have same length
+        // Check if all vectors have same length
         assert!(layer_count == vector::length(&weights_magnitudes), EWeightsMagnitudeMismatch);
         assert!(layer_count == vector::length(&weights_signs), EWeightsSignMismatch);
         assert!(layer_count == vector::length(&biases_magnitudes), EBiasesMagnitudeMismatch);
         assert!(layer_count == vector::length(&biases_signs), EBiasesSignMismatch);
 
-      // Convert vector<u8> to String
-        let name_string = string::utf8(name);
-        let description_string = string::utf8(description);
-        let task_type_string = string::utf8(task_type);
-
         let mut model = Model {
             id: object::new(ctx),
-            name: name_string,
-            description: description_string,
-            task_type: task_type_string,
+            name,
+            description,
+            task_type,
             graphs: vector::empty<SignedFixedGraph>(),
             partial_denses: vector::empty<PartialDenses>(),
             scale,
+            training_dataset_id,
+            test_dataset_ids,
         };
 
-      // NOTE(jarry): currently, we handle only one graph
+        // NOTE(jarry): currently, we handle only one graph
         let graph = graph::create_signed_graph(ctx);
         vector::push_back(&mut model.graphs, graph);
         
@@ -187,6 +191,43 @@ module tensorflowsui::model {
     /// @return Scale value used for fixed-point calculations
     public fun get_scale(model: &Model): u64 {
         model.scale
+    }
+
+
+    /// Adds a test dataset to the model.
+    public fun add_test_dataset(model: &mut Model, test_dataset: &dataset::Dataset) {
+        vector::push_back(&mut model.test_dataset_ids, object::id(test_dataset));
+    }
+
+    /// Removes a test dataset from the model.
+    /// Returns true if the dataset was found and removed, false otherwise.
+    public fun remove_test_dataset(model: &mut Model, test_dataset_id: ID): bool {
+        let mut i = 0;
+        let len = vector::length(&model.test_dataset_ids);
+        while (i < len) {
+            let current_id = vector::borrow(&model.test_dataset_ids, i);
+            if (*current_id == test_dataset_id) {
+                vector::remove(&mut model.test_dataset_ids, i);
+                return true
+            };
+            i = i + 1;
+        };
+        false
+    }
+
+    /// Gets the training dataset ID.
+    public fun get_training_dataset_id(model: &Model): ID {
+        model.training_dataset_id
+    }
+
+    /// Gets all test dataset IDs.
+    public fun get_test_dataset_ids(model: &Model): &vector<ID> {
+        &model.test_dataset_ids
+    }
+
+    /// Gets the number of test datasets.
+    public fun get_test_dataset_count(model: &Model): u64 {
+        vector::length(&model.test_dataset_ids)
     }
 
     /// @notice Run inference on the model with provided input
@@ -551,4 +592,5 @@ module tensorflowsui::model {
         output_sign: u64,
         is_last_dimension: bool
     }
+
 }
