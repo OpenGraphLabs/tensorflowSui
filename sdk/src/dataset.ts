@@ -1,20 +1,27 @@
 // src/sdk.ts
 import { SuiClient } from "@mysten/sui/client";
 import { Transaction } from "@mysten/sui/transactions";
-import type { DatasetSDKConfig, DatasetMetadata } from "./types.js";
+import { OpenGraphClientConfig, DatasetMetadata, WalrusStorageInfo, WalrusStorageStatus } from "./types.js";
 
-export class DatasetSDK {
+export class OpenGraphClient {
   private networkUrl: string;
   private packageId: string;
   private gasBudget: number;
   public suiClient: SuiClient;
 
-  constructor(config: DatasetSDKConfig) {
+  private walrusNetwork = "testnet";
+  private walrusPublisherUrl = "https://publisher.testnet.walrus.atalma.io";
+  private walrusAggregatorUrl = "https://aggregator.testnet.walrus.atalma.io";
+
+  constructor(config: OpenGraphClientConfig) {
     this.networkUrl = config.networkUrl;
     this.packageId = config.packageId;
     this.gasBudget = config.gasBudget;
-
-    this.suiClient = new SuiClient({ url: this.networkUrl });
+    this.suiClient = new SuiClient({ url: config.networkUrl });
+    
+    this.walrusNetwork = config.walrusNetwork ?? "testnet";
+    this.walrusPublisherUrl = config.walrusPublisherUrl ?? "https://publisher.testnet.walrus.atalma.io";
+    this.walrusAggregatorUrl = config.walrusAggregatorUrl ?? "https://aggregator.testnet.walrus.atalma.io";
   }
 
   // =============================
@@ -32,11 +39,26 @@ export class DatasetSDK {
     return this.gasBudget;
   }
 
-  public getConfig(): DatasetSDKConfig {
+  public getWalrusNetwork(): string {
+    return this.walrusNetwork;
+  }
+
+  public getWalrusPublisherUrl(): string {
+    return this.walrusPublisherUrl;
+  }
+
+  public getWalrusAggregatorUrl(): string {
+    return this.walrusAggregatorUrl;
+  }
+
+  public getConfig(): OpenGraphClientConfig {
     return {
       networkUrl: this.networkUrl,
       packageId: this.packageId,
       gasBudget: this.gasBudget,
+      walrusNetwork: this.walrusNetwork,
+      walrusPublisherUrl: this.walrusPublisherUrl,
+      walrusAggregatorUrl: this.walrusAggregatorUrl,
     };
   }
 
@@ -56,6 +78,31 @@ export class DatasetSDK {
     this.gasBudget = gasBudget;
   }
 
+  public setWalrusNetwork(network: string) {
+    this.walrusNetwork = network;
+  }
+
+  public setWalrusPublisherUrl(url: string) {
+    this.walrusPublisherUrl = url;
+  }
+
+  public setWalrusAggregatorUrl(url: string) {
+    this.walrusAggregatorUrl = url;
+  }
+
+  // Utility
+  private getSuiScanUrl(type: "transaction" | "object" | "account", id: string) {
+    const baseUrl = `https://suiscan.xyz/${this.walrusNetwork}`;
+    if (type === "transaction") {
+      return `${baseUrl}/tx/${id}`;
+    } else if (type === "account") {
+      return `${baseUrl}/account/${id}`;
+    } else {
+      return `${baseUrl}/object/${id}`;
+    }
+  }
+
+  // create ptb
   public async createDataset(
     accountAddress: string,
     metadata: DatasetMetadata,
@@ -172,5 +219,141 @@ export class DatasetSDK {
       license: content.fields.license,
       tags: content.fields.tags,
     };
+  }
+
+  // walrus
+  public async uploadDatasetFiles(files: File[], address: string): Promise<WalrusStorageInfo[]> {
+    const uploadPromises = files.map(file => this.uploadMedia(file, address));
+    return await Promise.all(uploadPromises);
+  }
+
+  // 미디어 업로드
+  public async uploadMedia(file: File, sendTo: string, epochs?: number): Promise<WalrusStorageInfo> {
+    try {
+      let epochsParam = epochs ? `&epochs=${epochs}` : "";
+      const url = `${this.walrusPublisherUrl}/v1/blobs?send_object_to=${sendTo}${epochsParam}`;
+
+      const response = await fetch(url, {
+        method: "PUT",
+        headers: {
+          "Content-Type": file.type,
+          "Content-Length": file.size.toString(),
+        },
+        body: file,
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`업로드 실패: ${response.status} ${response.statusText} - ${errorText}`);
+      }
+
+      const data = await response.json();
+      let storageInfo: WalrusStorageInfo;
+
+      if ("alreadyCertified" in data) {
+        storageInfo = {
+          status: WalrusStorageStatus.ALREADY_CERTIFIED,
+          blobId: data.alreadyCertified.blobId,
+          endEpoch: data.alreadyCertified.endEpoch,
+          suiRefType: "Previous Sui Certified Event",
+          suiRef: data.alreadyCertified.event.txDigest,
+          mediaUrl: `${this.walrusAggregatorUrl}/v1/blobs/${data.alreadyCertified.blobId}`,
+          suiScanUrl: this.getSuiScanUrl("transaction", data.alreadyCertified.event.txDigest),
+          suiRefId: data.alreadyCertified.event.txDigest,
+        };
+      } else if ("newlyCreated" in data) {
+        storageInfo = {
+          status: WalrusStorageStatus.NEWLY_CREATED,
+          blobId: data.newlyCreated.blobObject.blobId,
+          endEpoch: data.newlyCreated.blobObject.storage.endEpoch,
+          suiRefType: "Associated Sui Object",
+          suiRef: data.newlyCreated.blobObject.id,
+          mediaUrl: `${this.walrusAggregatorUrl}/v1/blobs/${data.newlyCreated.blobObject.blobId}`,
+          suiScanUrl: this.getSuiScanUrl("object", data.newlyCreated.blobObject.id),
+          suiRefId: data.newlyCreated.blobObject.id,
+        };
+      } else {
+        throw new Error("알 수 없는 응답 형식");
+      }
+
+      return storageInfo;
+    } catch (error) {
+      console.error("미디어 업로드 오류:", error);
+      throw new Error(
+        `미디어 업로드 실패: ${error instanceof Error ? error.message : "알 수 없는 오류"}`
+      );
+    }
+  }
+
+  public async uploadTrainingData(file: File, address: string): Promise<WalrusStorageInfo> {
+    const response = await fetch(`${this.walrusPublisherUrl}/v1/blobs?send_object_to=${address}`, {
+      method: "PUT",
+      body: file,
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to upload file: ${response.statusText}`);
+    }
+
+    const data = await response.json();
+    return this.transformResponse(data);
+  }
+
+  private transformResponse(data: any): WalrusStorageInfo {
+    if ("alreadyCertified" in data) {
+      return {
+        status: WalrusStorageStatus.ALREADY_CERTIFIED,
+        blobId: data.alreadyCertified.blobId,
+        endEpoch: data.alreadyCertified.endEpoch,
+        suiRefType: "Previous Sui Certified Event",
+        suiRef: data.alreadyCertified.event.txDigest,
+        mediaUrl: `${this.walrusAggregatorUrl}/v1/blobs/${data.alreadyCertified.blobId}`,
+        suiScanUrl: this.getSuiScanUrl("transaction", data.alreadyCertified.event.txDigest),
+        suiRefId: data.alreadyCertified.event.txDigest,
+      };
+    } else if ("newlyCreated" in data) {
+      return {
+        status: WalrusStorageStatus.NEWLY_CREATED,
+        blobId: data.newlyCreated.blobObject.blobId,
+        endEpoch: data.newlyCreated.blobObject.storage.endEpoch,
+        suiRefType: "Associated Sui Object",
+        suiRef: data.newlyCreated.blobObject.id,
+        mediaUrl: `${this.walrusAggregatorUrl}/v1/blobs/${data.newlyCreated.blobObject.blobId}`,
+        suiScanUrl: this.getSuiScanUrl("object", data.newlyCreated.blobObject.id),
+        suiRefId: data.newlyCreated.blobObject.id,
+      };
+    } else {
+      throw new Error("Unknown response format");
+    }
+  }
+
+  public async getTrainingData(blobIds: string[]): Promise<Blob[]> {
+    try {
+      const getPromises = blobIds.map(blobId => this.getMedia(blobId));
+      return await Promise.all(getPromises);
+    } catch (error) {
+      console.error("학습 데이터 가져오기 오류:", error);
+      throw error;
+    }
+  }
+
+  public async getMedia(blobId: string): Promise<Blob> {
+    try {
+      const url = `${this.walrusAggregatorUrl}/v1/blobs/${blobId}`;
+      const response = await fetch(url);
+
+      if (!response.ok) {
+        throw new Error(`미디어 가져오기 실패: ${response.status} ${response.statusText}`);
+      }
+
+      return await response.blob();
+    } catch (error) {
+      console.error("미디어 가져오기 오류:", error);
+      throw error;
+    }
+  }
+
+  public getMediaUrl(blobId: string): string {
+    return `${this.walrusAggregatorUrl}/v1/blobs/${blobId}`;
   }
 }
