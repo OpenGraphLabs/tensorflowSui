@@ -1,185 +1,176 @@
-// src/dataset.ts
+// src/sdk.ts
 import { SuiClient } from "@mysten/sui/client";
 import { Transaction } from "@mysten/sui/transactions";
-import {
-  getSuiNetwork,
-  getContractConfig,
-  getGasBudget,
-} from "./config.js";
-import { DatasetMetadata } from "./types.js";
+import type { DatasetSDKConfig, DatasetMetadata } from "./types.js";
 
-const suiClient = new SuiClient({
-  url: getSuiNetwork().URL,
-});
+export class DatasetSDK {
+  private networkUrl: string;
+  private packageId: string;
+  private gasBudget: number;
+  public suiClient: SuiClient;
 
-export async function createDataset(
-  accountAddress: string,
-  metadata: DatasetMetadata,
-  annotations: string[],
-  files: { blobId: string; fileHash: string }[]
-) {
-  const contract = getContractConfig();
-  const tx = new Transaction();
-  tx.setGasBudget(getGasBudget());
+  constructor(config: DatasetSDKConfig) {
+    this.networkUrl = config.networkUrl;
+    this.packageId = config.packageId;
+    this.gasBudget = config.gasBudget;
 
-  const metadataObject = tx.moveCall({
-    target: `${contract.PACKAGE_ID}::metadata::new_metadata`,
-    arguments: [
-      tx.pure.option("string", metadata.description),
-      tx.pure.string(metadata.dataType),
-      tx.pure.u64(BigInt(metadata.dataSize)),
-      tx.pure.option("string", metadata.creator),
-      tx.pure.option("string", metadata.license),
-      tx.pure.option("vector<string>", metadata.tags),
-    ],
-  });
+    this.suiClient = new SuiClient({ url: this.networkUrl });
+  }
 
-  const dataset = tx.moveCall({
-    target: `${contract.PACKAGE_ID}::dataset::new_dataset`,
-    arguments: [tx.pure.string(metadata.name), metadataObject],
-  });
+  // =============================
+  // Getter Methods
+  // =============================
+  public getNetworkUrl(): string {
+    return this.networkUrl;
+  }
 
-  for (let i = 0; i < files.length; i++) {
-    const rangeOptionObject = tx.moveCall({
-      target: `${contract.PACKAGE_ID}::dataset::new_range_option`,
-      arguments: [tx.pure.option("u64", null), tx.pure.option("u64", null)],
-    });
+  public getPackageId(): string {
+    return this.packageId;
+  }
 
-    const dataObject = tx.moveCall({
-      target: `${contract.PACKAGE_ID}::dataset::new_data`,
+  public getGasBudget(): number {
+    return this.gasBudget;
+  }
+
+  public getConfig(): DatasetSDKConfig {
+    return {
+      networkUrl: this.networkUrl,
+      packageId: this.packageId,
+      gasBudget: this.gasBudget,
+    };
+  }
+
+  // =============================
+  // Setter Methods
+  // =============================
+  public setNetworkUrl(url: string): void {
+    this.networkUrl = url;
+    this.suiClient = new SuiClient({ url }); // 변경 시 client 재생성
+  }
+
+  public setPackageId(packageId: string): void {
+    this.packageId = packageId;
+  }
+
+  public setGasBudget(gasBudget: number): void {
+    this.gasBudget = gasBudget;
+  }
+
+  public async createDataset(
+    accountAddress: string,
+    metadata: DatasetMetadata,
+    annotations: string[],
+    files: { blobId: string; fileHash: string }[]
+  ) {
+    const tx = new Transaction();
+    tx.setGasBudget(this.gasBudget);
+
+    const metadataObject = tx.moveCall({
+      target: `${this.packageId}::metadata::new_metadata`,
       arguments: [
-        tx.pure.string(`data_${i}`),
-        tx.pure.string(files[i].blobId),
-        tx.pure.string(files[i].fileHash),
-        rangeOptionObject,
+        tx.pure.option("string", metadata.description),
+        tx.pure.string(metadata.dataType),
+        tx.pure.u64(BigInt(metadata.dataSize)),
+        tx.pure.option("string", metadata.creator),
+        tx.pure.option("string", metadata.license),
+        tx.pure.option("vector<string>", metadata.tags),
       ],
     });
 
-    tx.moveCall({
-      target: `${contract.PACKAGE_ID}::dataset::add_annotation_label`,
-      arguments: [dataObject, tx.pure.string(annotations[i])],
+    const dataset = tx.moveCall({
+      target: `${this.packageId}::dataset::new_dataset`,
+      arguments: [tx.pure.string(metadata.name), metadataObject],
     });
 
-    tx.moveCall({
-      target: `${contract.PACKAGE_ID}::dataset::add_data`,
-      arguments: [dataset, dataObject],
-    });
-  }
+    for (let i = 0; i < files.length; i++) {
+      const rangeOptionObject = tx.moveCall({
+        target: `${this.packageId}::dataset::new_range_option`,
+        arguments: [tx.pure.option("u64", null), tx.pure.option("u64", null)],
+      });
 
-  tx.transferObjects([dataset], accountAddress);
+      const dataObject = tx.moveCall({
+        target: `${this.packageId}::dataset::new_data`,
+        arguments: [
+          tx.pure.string(`data_${i}`),
+          tx.pure.string(files[i].blobId),
+          tx.pure.string(files[i].fileHash),
+          rangeOptionObject,
+        ],
+      });
 
-  return tx;
-}
+      tx.moveCall({
+        target: `${this.packageId}::dataset::add_annotation_label`,
+        arguments: [dataObject, tx.pure.string(annotations[i])],
+      });
 
-export async function getDatasets(ownerAddress: string) {
-  if (!ownerAddress) {
-    return {
-      datasets: [],
-      isLoading: false,
-      error: null,
-    };
-  }
-
-  try {
-    // 해당 주소가 소유한 객체 가져오기
-    const { data } = await suiClient.getOwnedObjects({
-      owner: ownerAddress,
-    });
-
-    // 객체 ID 추출
-    const objectIds = data
-      .map(item => item.data?.objectId)
-      .filter((id): id is string => id !== undefined);
-
-    if (!objectIds.length) {
-      return {
-        datasets: [],
-        isLoading: false,
-        error: null,
-      };
+      tx.moveCall({
+        target: `${this.packageId}::dataset::add_data`,
+        arguments: [dataset, dataObject],
+      });
     }
 
-    // 객체 상세 정보 가져오기
-    const objects = await suiClient.multiGetObjects({
+    tx.transferObjects([dataset], accountAddress);
+    return tx;
+  }
+
+  public async getDatasets(ownerAddress: string) {
+    if (!ownerAddress) {
+      throw new Error("OwnerAddress ID is required");
+    }
+
+    const { data } = await this.suiClient.getOwnedObjects({ owner: ownerAddress });
+    const objectIds = data
+      .map(d => d.data?.objectId)
+      .filter((id): id is string => id !== undefined);
+
+    const objects = await this.suiClient.multiGetObjects({
       ids: objectIds,
-      options: {
-        showContent: true,
-        showType: true,
-      },
+      options: { showContent: true, showType: true },
     });
 
-    // 데이터셋 객체만 필터링
-    const datasetObjects = objects.filter(
-      obj =>
+    return objects
+      .filter(obj =>
         obj.data?.content?.dataType === "moveObject" &&
-        obj.data?.content?.type?.includes("dataset::Dataset")
-    );
-
-    // 데이터셋 객체 파싱
-    const datasets = datasetObjects.map(obj => {
-      const content = obj.data?.content as any;
-      return {
-        id: obj.data?.objectId,
-        name: content?.fields?.name,
-        description: content?.fields?.description,
-        dataType: content?.fields?.data_type,
-        dataSize: content?.fields?.data_size,
-        creator: content?.fields?.creator,
-        license: content?.fields?.license,
-        tags: content?.fields?.tags,
-      };
-    });
-
-    return {
-      datasets,
-      isLoading: false,
-      error: null,
-    };
-  } catch (error) {
-    console.error("Error fetching datasets:", error);
-    return {
-      datasets: [],
-      isLoading: false,
-      error,
-    };
-  }
-}
-
-export async function getDatasetById(datasetId: string) {
-  if (!datasetId) {
-    throw new Error("Dataset ID is required");
+        obj.data?.content?.type?.includes("dataset::Dataset"))
+      .map(obj => {
+        const content = obj.data?.content as any;
+        return {
+          id: obj.data?.objectId,
+          name: content.fields.name,
+          description: content.fields.description,
+          dataType: content.fields.data_type,
+          dataSize: content.fields.data_size,
+          creator: content.fields.creator,
+          license: content.fields.license,
+          tags: content.fields.tags,
+        };
+      });
   }
 
-  try {
-    const object = await suiClient.getObject({
+  public async getDatasetById(datasetId: string) {
+    if (!datasetId) {
+      throw new Error("Dataset ID is required");
+    }
+
+    const object = await this.suiClient.getObject({
       id: datasetId,
-      options: {
-        showContent: true,
-        showType: true,
-      },
+      options: { showContent: true, showType: true },
     });
 
     if (object.data?.content?.dataType !== "moveObject") {
       throw new Error("Invalid dataset object");
     }
 
-    const content = object.data.content as any;
+    const content = object.data?.content as any;
     return {
-      dataset: {
-        id: object.data.objectId,
-        name: content.fields?.name,
-        description: content.fields?.description,
-        dataType: content.fields?.data_type,
-        dataSize: content.fields?.data_size,
-        creator: content.fields?.creator,
-        license: content.fields?.license,
-        tags: content.fields?.tags,
-      },
-      isLoading: false,
-      error: null,
+      id: object.data?.objectId,
+      name: content.fields.name,
+      description: content.fields.description,
+      dataType: content.fields.data_type,
+      dataSize: content.fields.data_size,
+      creator: content.fields.creator,
+      license: content.fields.license,
+      tags: content.fields.tags,
     };
-  } catch (error) {
-    console.error("Error fetching dataset by ID:", error);
-    throw error;
   }
 }

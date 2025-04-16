@@ -1,5 +1,5 @@
 {
-  "name": "dataset-test-sdk3",
+  "name": "dataset-test-sdk5",
   "version": "1.0.0",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

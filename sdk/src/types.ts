@@ -1,5 +1,11 @@
 // src/types.ts
 
+export type DatasetSDKConfig = {
+  networkUrl: string;
+  packageId: string;
+  gasBudget: number;
+};
+
 export interface DatasetMetadata {
     name: string;
     description?: string;
@@ -8,21 +14,5 @@ export interface DatasetMetadata {
     dataSize: number;
     creator?: string;
     license?: string;
-  }
-  
-  export interface Data {
-    path: string;
-    annotations: string[];
-    blobId: string;
-    blobHash: string;
-    range?: {
-      start?: number;
-      end?: number;
-    };
-  }
-  
-  export interface DatasetCreationResult {
-    datasetId: string;
-    dataIds: string[];
   }
   
