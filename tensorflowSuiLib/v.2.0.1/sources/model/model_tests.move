@@ -51,8 +51,8 @@ module tensorflowsui::model_tests {
             biases_magnitudes,
             biases_signs,
             2, // Scale factor
-            training_dataset_id,
-            test_dataset_ids,
+            option::some(training_dataset_id),
+            option::some(test_dataset_ids),
             ctx
         );
     }
@@ -100,8 +100,8 @@ module tensorflowsui::model_tests {
             biases_magnitudes,
             biases_signs,
             2,
-            training_dataset_id,
-            test_dataset_ids,
+            option::some(training_dataset_id),
+            option::some(test_dataset_ids),
             ctx,
         );
         
@@ -116,7 +116,7 @@ module tensorflowsui::model_tests {
             
             // Verify model properties
             assert_eq(model::get_scale(&model_obj), 2);
-            assert_eq(model::get_training_dataset_id(&model_obj), object::id_from_address(@0x1));
+            assert_eq(model::get_training_dataset_id(&model_obj), option::some(object::id_from_address(@0x1)));
             assert_eq(model::get_test_dataset_count(&model_obj), 2);
             assert_eq(model::get_test_dataset_ids(&model_obj)[0], object::id_from_address(@0x2));
             assert_eq(model::get_test_dataset_ids(&model_obj)[1], object::id_from_address(@0x3));
