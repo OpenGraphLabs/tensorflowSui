@@ -3,7 +3,7 @@
 
 /// @title Fully Onchain Neural Network Inference Implementation
 module tensorflowsui::model {
-    use tensorflowsui::graph::{Self, SignedFixedGraph, PartialDenses};
+    use tensorflowsui::graph::{Self, SignedFixedGraph};
     use tensorflowsui::dataset;
     use std::string::{String};
     use tensorflowsui::tensor;
@@ -45,10 +45,9 @@ module tensorflowsui::model {
         description: String,
         task_type: String,
         graphs: vector<SignedFixedGraph>,
-        partial_denses: vector<PartialDenses>,
         scale: u64,
-        training_dataset_id: ID,
-        test_dataset_ids: vector<ID>,
+        training_dataset_id: Option<ID>,
+        test_dataset_ids: Option<vector<ID>>,
     }
     
     /// @notice Event emitted when a layer computation is completed
@@ -78,8 +77,8 @@ module tensorflowsui::model {
     /// @param biases_magnitudes List of bias magnitudes for each layer
     /// @param biases_signs List of bias signs for each layer
     /// @param scale Fixed point scale (2^scale)
-    /// @param training_dataset_id Training dataset ID
-    /// @param test_dataset_ids List of test dataset IDs
+    /// @param training_dataset_id Training dataset ID (optional)
+    /// @param test_dataset_ids List of test dataset IDs (optional)
     /// @param ctx Transaction context
     entry public fun new_model(
         name: String,
@@ -91,8 +90,8 @@ module tensorflowsui::model {
         biases_magnitudes: vector<vector<u64>>,
         biases_signs: vector<vector<u64>>,
         scale: u64,
-        training_dataset_id: ID,
-        test_dataset_ids: vector<ID>,
+        training_dataset_id: Option<ID>,
+        test_dataset_ids: Option<vector<ID>>,
         ctx: &mut TxContext,
     ) {
         // Validate scale value
@@ -113,7 +112,6 @@ module tensorflowsui::model {
             description,
             task_type,
             graphs: vector::empty<SignedFixedGraph>(),
-            partial_denses: vector::empty<PartialDenses>(),
             scale,
             training_dataset_id,
             test_dataset_ids,
@@ -158,9 +156,6 @@ module tensorflowsui::model {
             layer_idx = layer_idx + 1;
         };
     
-        let mut partials = graph::create_partial_denses(ctx);
-        graph::add_partials_for_all_but_last(&model.graphs[0], &mut partials);
-        vector::push_back(&mut model.partial_denses, partials);
 
         transfer::transfer(model, tx_context::sender(ctx));
     }
@@ -196,18 +191,18 @@ module tensorflowsui::model {
 
     /// Adds a test dataset to the model.
     public fun add_test_dataset(model: &mut Model, test_dataset: &dataset::Dataset) {
-        vector::push_back(&mut model.test_dataset_ids, object::id(test_dataset));
+        vector::push_back(option::borrow_mut(&mut model.test_dataset_ids), object::id(test_dataset));
     }
 
     /// Removes a test dataset from the model.
     /// Returns true if the dataset was found and removed, false otherwise.
     public fun remove_test_dataset(model: &mut Model, test_dataset_id: ID): bool {
         let mut i = 0;
-        let len = vector::length(&model.test_dataset_ids);
+        let len = vector::length(option::borrow(&model.test_dataset_ids));
         while (i < len) {
-            let current_id = vector::borrow(&model.test_dataset_ids, i);
+            let current_id = vector::borrow(option::borrow(&model.test_dataset_ids), i);
             if (*current_id == test_dataset_id) {
-                vector::remove(&mut model.test_dataset_ids, i);
+                vector::remove(option::borrow_mut(&mut model.test_dataset_ids), i);
                 return true
             };
             i = i + 1;
@@ -216,18 +211,18 @@ module tensorflowsui::model {
     }
 
     /// Gets the training dataset ID.
-    public fun get_training_dataset_id(model: &Model): ID {
+    public fun get_training_dataset_id(model: &Model): Option<ID> {
         model.training_dataset_id
     }
 
     /// Gets all test dataset IDs.
     public fun get_test_dataset_ids(model: &Model): &vector<ID> {
-        &model.test_dataset_ids
+        option::borrow(&model.test_dataset_ids)
     }
 
     /// Gets the number of test datasets.
     public fun get_test_dataset_count(model: &Model): u64 {
-        vector::length(&model.test_dataset_ids)
+        vector::length(option::borrow(&model.test_dataset_ids))
     }
 
     /// @notice Run inference on the model with provided input
