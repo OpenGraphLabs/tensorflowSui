@@ -102,8 +102,41 @@ export class OpenGraphClient {
     }
   }
 
+  // walrus and create ptb tx
+  public async uploadDatasetAndCreateDataset(
+    files: File[],
+    address: string,
+    metadata: DatasetMetadata,
+    annotations: string[],
+    epochs?: number
+  ) {
+    const storageInfos = await this.uploadDatasetFiles(files, address, epochs);
+  
+    const dataFiles = await Promise.all(
+      storageInfos.map(async (info, i) => {
+        const file = files[i];
+        const arrayBuffer = await file.arrayBuffer();
+        const hashBuffer = await crypto.subtle.digest("SHA-256", arrayBuffer);
+        const hashArray = Array.from(new Uint8Array(hashBuffer));
+        const fileHash = hashArray.map(b => b.toString(16).padStart(2, "0")).join("");
+  
+        return {
+          blobId: info.blobId,
+          fileHash,
+        };
+      })
+    );
+  
+    const tx = await this.createDataset(address, metadata, annotations, dataFiles);
+  
+    return {
+      storageInfos,
+      transaction: tx,
+    };
+  }
+
   // create ptb
-  public async createDataset(
+  private async createDataset(
     accountAddress: string,
     metadata: DatasetMetadata,
     annotations: string[],
@@ -222,13 +255,13 @@ export class OpenGraphClient {
   }
 
   // walrus
-  public async uploadDatasetFiles(files: File[], address: string): Promise<WalrusStorageInfo[]> {
-    const uploadPromises = files.map(file => this.uploadMedia(file, address));
+  private async uploadDatasetFiles(files: File[], address: string, epochs?: number): Promise<WalrusStorageInfo[]> {
+    const uploadPromises = files.map(file => this.uploadMedia(file, address, epochs));
     return await Promise.all(uploadPromises);
   }
 
   // 미디어 업로드
-  public async uploadMedia(file: File, sendTo: string, epochs?: number): Promise<WalrusStorageInfo> {
+  private async uploadMedia(file: File, sendTo: string, epochs?: number): Promise<WalrusStorageInfo> {
     try {
       let epochsParam = epochs ? `&epochs=${epochs}` : "";
       const url = `${this.walrusPublisherUrl}/v1/blobs?send_object_to=${sendTo}${epochsParam}`;
