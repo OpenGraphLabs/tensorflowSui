@@ -47,8 +47,8 @@ module tensorflowsui::model {
         graphs: vector<SignedFixedGraph>,
         partial_denses: vector<PartialDenses>,
         scale: u64,
-        training_dataset_id: ID,
-        test_dataset_ids: vector<ID>,
+        training_dataset_id: Option<ID>,
+        test_dataset_ids: Option<vector<ID>>,
     }
     
     /// @notice Event emitted when a layer computation is completed
@@ -78,8 +78,8 @@ module tensorflowsui::model {
     /// @param biases_magnitudes List of bias magnitudes for each layer
     /// @param biases_signs List of bias signs for each layer
     /// @param scale Fixed point scale (2^scale)
-    /// @param training_dataset_id Training dataset ID
-    /// @param test_dataset_ids List of test dataset IDs
+    /// @param training_dataset_id Training dataset ID (optional)
+    /// @param test_dataset_ids List of test dataset IDs (optional)
     /// @param ctx Transaction context
     entry public fun new_model(
         name: String,
@@ -91,8 +91,8 @@ module tensorflowsui::model {
         biases_magnitudes: vector<vector<u64>>,
         biases_signs: vector<vector<u64>>,
         scale: u64,
-        training_dataset_id: ID,
-        test_dataset_ids: vector<ID>,
+        training_dataset_id: Option<ID>,
+        test_dataset_ids: Option<vector<ID>>,
         ctx: &mut TxContext,
     ) {
         // Validate scale value
