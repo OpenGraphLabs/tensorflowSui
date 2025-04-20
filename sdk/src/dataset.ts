@@ -103,7 +103,7 @@ export class OpenGraphClient {
   }
 
   // walrus and create ptb tx
-  public async uploadDatasetAndCreateDataset(
+  public async uploadDataset(
     files: File[],
     address: string,
     metadata: DatasetMetadata,
@@ -384,9 +384,5 @@ export class OpenGraphClient {
       console.error("미디어 가져오기 오류:", error);
       throw error;
     }
-  }
-
-  public getMediaUrl(blobId: string): string {
-    return `${this.walrusAggregatorUrl}/v1/blobs/${blobId}`;
   }
 }

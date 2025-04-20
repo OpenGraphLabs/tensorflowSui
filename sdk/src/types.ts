@@ -9,7 +9,7 @@ export type OpenGraphClientConfig = {
   walrusAggregatorUrl?: string;
 };
 
-export interface DatasetMetadata {
+export type DatasetMetadata = {
     name: string;
     description?: string;
     tags?: string[];
