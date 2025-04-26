@@ -1,20 +1,20 @@
-OpenGraphClient SDK
-Easily upload datasets and manage Sui blockchain assets via Walrus Publisher and Aggregator.
+# OpenGraphClient SDK
 
-📦 Installation
-bash
-npm install YOUR_PACKAGE_NAME
-or
+> **Easily upload datasets and manage Sui blockchain assets via Walrus Publisher and Aggregator.**
 
-bash
-복사
-편집
-yarn add YOUR_PACKAGE_NAME
-🚀 Quick Start
-typescript
-복사
-편집
-import { OpenGraphClient } from "your-package-name";
+## 📦 Installation
+
+```bash
+npm install open-graph-client
+```
+or 
+```bash
+yarn add open-graph-client
+```
+
+## 🚀 Quick Start
+```typescript
+import { OpenGraphClient } from "open-graph-client";
 
 // Initialize the client
 const client = new OpenGraphClient({
@@ -23,7 +23,7 @@ const client = new OpenGraphClient({
   gasBudget: 100000000,
 });
 
-// Upload and register dataset
+// Upload dataset
 const result = await client.uploadDataset(
   files,           // File[]
   walletAddress,   // string
@@ -43,99 +43,94 @@ const result = await client.uploadDataset(
 // Check storage info and transaction
 console.log(result.storageInfos);
 console.log(result.transaction);
-📚 API Overview
-Constructor
-typescript
-복사
-편집
+```
+
+## 📚 API Overview
+### Constructor
+```typescript
 new OpenGraphClient(config: OpenGraphClientConfig);
+```
+### Constructor Parameters
 
-Param	Type	Description
-networkUrl	string	Sui RPC endpoint URL
-packageId	string	Smart contract package ID
-gasBudget	number	Default gas budget
-walrusNetwork?	string	Walrus network (default: testnet)
-walrusPublisherUrl?	string	Walrus publisher API URL
-walrusAggregatorUrl?	string	Walrus aggregator API URL
-Main Methods
-uploadDataset(files, address, metadata, annotations, epochs?)
-Uploads files to Walrus and prepares a transaction for dataset creation.
+| Parameter            | Type     | Description                          |
+|-----------------------|----------|--------------------------------------|
+| `networkUrl`          | `string` | Sui RPC endpoint URL                 |
+| `packageId`           | `string` | Smart contract package ID            |
+| `gasBudget`           | `number` | Default gas budget                   |
+| `walrusNetwork`?      | `string` | Walrus network (default: `testnet`)   |
+| `walrusPublisherUrl`? | `string` | Walrus publisher API URL             |
+| `walrusAggregatorUrl`? | `string` | Walrus aggregator API URL            |
 
-files: File[]
 
-address: string
+## Main Methods
 
-metadata: DatasetMetadata
+### uploadDataset
 
-annotations: string[]
-
-epochs?: number (optional)
-
-Returns:
-
-typescript
-복사
-편집
-{
+```typescript
+uploadDataset(
+  files: File[],
+  address: string,
+  metadata: DatasetMetadata,
+  annotations: string[],
+  epochs?: number
+): Promise<{
   storageInfos: WalrusStorageInfo[],
   transaction: Transaction
-}
-getDatasets(ownerAddress)
-Fetch all datasets owned by a specific Sui address.
+}>
+```
+* files: List of files to upload (File[])
+* address: Owner's wallet address (string)
+* metadata: Metadata about the dataset (DatasetMetadata)
+* annotations: Annotations for each file (string[])
+* epochs?: Optional certification duration (number)
 
-ownerAddress: string
+### getDatasets
 
-Returns an array of dataset metadata.
+```typescript
+getDatasets(ownerAddress: string): Promise<DatasetMetadata[]>
+```
+* ownerAddress: The Sui address of the dataset owner (string)
 
-getDatasetById(datasetId)
-Fetch a single dataset by its object ID.
+### getDatasetById
 
-datasetId: string
+```typescript
+getDatasetById(datasetId: string): Promise<DatasetMetadata>
+```
+* datasetId: The object ID of the dataset (string)
 
-Returns a single dataset metadata object.
+### uploadTrainingData
 
-uploadTrainingData(file, address)
-Upload a single file intended for training.
+```typescript
+uploadTrainingData(file: File, address: string): Promise<WalrusStorageInfo>
+```
+* file: The training data file to upload (File)
+* address: Wallet address for ownership (string)
 
-file: File
+### getTrainingData
 
-address: string
+```typescript
+getTrainingData(blobIds: string[]): Promise<Blob[]>
+```
+* blobIds: Array of blob IDs to download (string[])
 
-Returns a WalrusStorageInfo object.
+### getMedia
 
-getTrainingData(blobIds)
-Download multiple blobs by their blob IDs.
+```typescript
+getMedia(blobId: string): Promise<Blob>
+```
+* blobId: The ID of a single blob (string)
 
-blobIds: string[]
+### Getter/Setter Methods
+* `getNetworkUrl()`, `setNetworkUrl(url)`
+* `getPackageId()`, `setPackageId(id)`
+* `getGasBudget()`, `setGasBudget(budget)`
+* `getWalrusNetwork()`, `setWalrusNetwork(network)`
+* `getWalrusPublisherUrl()`, `setWalrusPublisherUrl(url)`
+* `getWalrusAggregatorUrl()`, `setWalrusAggregatorUrl(url)`
+* `getConfig()`
 
-Returns a Blob[].
-
-getMedia(blobId)
-Download a single blob by its blob ID.
-
-blobId: string
-
-Returns a Blob.
-
-Getter/Setter Methods
-getNetworkUrl(), setNetworkUrl(url)
-
-getPackageId(), setPackageId(id)
-
-getGasBudget(), setGasBudget(budget)
-
-getWalrusNetwork(), setWalrusNetwork(network)
-
-getWalrusPublisherUrl(), setWalrusPublisherUrl(url)
-
-getWalrusAggregatorUrl(), setWalrusAggregatorUrl(url)
-
-getConfig()
-
-🛠️ Types
-typescript
-복사
-편집
+## 🛠️ Types
+```typescript
 interface OpenGraphClientConfig {
   networkUrl: string;
   packageId: string;
@@ -170,11 +165,21 @@ enum WalrusStorageStatus {
   NEWLY_CREATED = "NEWLY_CREATED",
   ALREADY_CERTIFIED = "ALREADY_CERTIFIED",
 }
-🌐 Walrus URLs
+```
 
-Network	Publisher URL	Aggregator URL
-Testnet	https://publisher.testnet.walrus.atalma.io	https://aggregator.testnet.walrus.atalma.io
-You can override these URLs using the constructor options.
+## 🌐 Walrus URLs
 
-📄 License
-MIT License
+| Network | Publisher URL                               | Aggregator URL                                |
+|---------|----------------------------------------------|------------------------------------------------|
+| Testnet | https://publisher.testnet.walrus.atalma.io   | https://aggregator.testnet.walrus.atalma.io    |
+
+
+## License
+
+This project is open-sourced under the ISC License.
+
+You are free to use, copy, modify, and distribute this software with or without fee, provided that the original copyright notice and this permission notice appear.
+
+See the [LICENSE](./LICENSE) file for full license information.
+
+
