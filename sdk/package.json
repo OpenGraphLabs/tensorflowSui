@@ -1,6 +1,6 @@
 {
   "name": "tensorflow-sui",
-  "version": "1.0.2",
+  "version": "1.0.4",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {
@@ -12,7 +12,13 @@
   "devDependencies": {
     "typescript": "^5.3.0"
   },
-  "keywords": [],
+  "keywords": [
+    "sui",
+    "walrus",
+    "opengraph",
+    "sdk",
+    "dataset"
+  ],
   "author": "",
   "license": "ISC",
   "description": ""
