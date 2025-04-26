@@ -67,7 +67,7 @@ export class OpenGraphClient {
   // =============================
   public setNetworkUrl(url: string): void {
     this.networkUrl = url;
-    this.suiClient = new SuiClient({ url }); // 변경 시 client 재생성
+    this.suiClient = new SuiClient({ url });
   }
 
   public setPackageId(packageId: string): void {
@@ -306,14 +306,14 @@ export class OpenGraphClient {
           suiRefId: data.newlyCreated.blobObject.id,
         };
       } else {
-        throw new Error("알 수 없는 응답 형식");
+        throw new Error("Unknown response format");
       }
 
       return storageInfo;
     } catch (error) {
-      console.error("미디어 업로드 오류:", error);
+      console.error("Upload error:", error);
       throw new Error(
-        `미디어 업로드 실패: ${error instanceof Error ? error.message : "알 수 없는 오류"}`
+        `Upload failed: ${error instanceof Error ? error.message : "Unknown error"}`
       );
     }
   }
@@ -365,7 +365,7 @@ export class OpenGraphClient {
       const getPromises = blobIds.map(blobId => this.getMedia(blobId));
       return await Promise.all(getPromises);
     } catch (error) {
-      console.error("학습 데이터 가져오기 오류:", error);
+      console.error("Failed to get training data:", error);
       throw error;
     }
   }
@@ -376,12 +376,12 @@ export class OpenGraphClient {
       const response = await fetch(url);
 
       if (!response.ok) {
-        throw new Error(`미디어 가져오기 실패: ${response.status} ${response.statusText}`);
+        throw new Error(`MediaFetchError: ${response.status} ${response.statusText}`);
       }
 
       return await response.blob();
     } catch (error) {
-      console.error("미디어 가져오기 오류:", error);
+      console.error(`Failed to fetch blob (blobId=${blobId}) from ${this.walrusAggregatorUrl}:`, error);
       throw error;
     }
   }
