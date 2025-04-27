@@ -5,16 +5,16 @@
 ## 📦 Installation
 
 ```bash
-npm install open-graph-client
+npm install tensorflow-sui
 ```
 or 
 ```bash
-yarn add open-graph-client
+yarn add tensorflow-sui
 ```
 
 ## 🚀 Quick Start
 ```typescript
-import { OpenGraphClient } from "open-graph-client";
+import { OpenGraphClient } from "tensorflow-sui";
 
 // Initialize the client
 const client = new OpenGraphClient({
