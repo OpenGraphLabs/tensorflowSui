@@ -1,6 +1,6 @@
 {
   "name": "tensorflow-sui",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {
@@ -19,7 +19,11 @@
     "sdk",
     "dataset"
   ],
-  "author": "",
+  "author": "OpenGraphLabs",
   "license": "ISC",
-  "description": ""
+  "description": "Upload datasets and manage Sui blockchain assets with Walrus integration.",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/OpenGraphLabs/tensorflowSui.git"
+  }
 }
