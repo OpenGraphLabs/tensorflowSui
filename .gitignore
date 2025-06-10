@@ -59,3 +59,14 @@ out/
 *.pid.lock
 .lock-wscript
 .yarn-integrity
+
+# Exclude specific test files
+tensorflowSui/tensorflowSuiLib/v.2.0.1/sources/model/tensor_internal_tests.move
+tensorflowSui/tensorflowSuiLib/v.2.0.1/sources/model/tensor_tests.move
+
+# Or exclude all test files (if you want)
+**/*_tests.move
+**/*_test.move
+
+# Or exclude entire test directories
+**/tests/

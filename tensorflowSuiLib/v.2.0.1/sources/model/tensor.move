@@ -268,33 +268,41 @@ public fun add(a: &SignedFixedTensor, b: &SignedFixedTensor): SignedFixedTensor 
         add(a, &neg_b)
     }
 
-    public fun multiply(a: &SignedFixedTensor, b: &SignedFixedTensor): SignedFixedTensor {
-        assert!(a.scale == b.scale, 1201);
-        let s = a.scale;
-        let len = vector::length(&a.magnitude);
-        assert!(len == vector::length(&b.magnitude), 1202);
+public fun multiply(a: &SignedFixedTensor, b: &SignedFixedTensor): SignedFixedTensor {
+    assert!(a.scale == b.scale, 1201);
+    let s = a.scale;
+    let len = vector::length(&a.magnitude);
+    assert!(len == vector::length(&b.magnitude), 1202);
 
-        let mut out_mag = vector::empty<u64>();
-        let mut out_sign= vector::empty<u64>();
+    let mut out_mag = vector::empty<u64>();
+    let mut out_sign = vector::empty<u64>();
+    
+    // Scale factor for normalization
+    let scale_factor = scale_up(1, s);
 
-        let mut i = 0;
-        while (i < len) {
-            let sa = *vector::borrow(&a.sign, i);
-            let ma = *vector::borrow(&a.magnitude, i);
-            let sb = *vector::borrow(&b.sign, i);
-            let mb = *vector::borrow(&b.magnitude, i);
+    let mut i = 0;
+    while (i < len) {
+        let sa = *vector::borrow(&a.sign, i);
+        let ma = *vector::borrow(&a.magnitude, i);
+        let sb = *vector::borrow(&b.sign, i);
+        let mb = *vector::borrow(&b.magnitude, i);
 
-            let mul_sgn = if (sa == sb) { 0 } else { 1 };
-            let mul_mag = ma * mb; // => scale=2s
+        let mul_sgn = if (sa == sb) { 0 } else { 1 };
+        let mul_mag = ma * mb; // This has scale = 2s
+        
+        // Normalize back to original scale
+        let normalized_mag = mul_mag / scale_factor;
 
-            vector::push_back(&mut out_sign, mul_sgn);
-            vector::push_back(&mut out_mag,  mul_mag);
+        vector::push_back(&mut out_sign, mul_sgn);
+        vector::push_back(&mut out_mag, normalized_mag);
 
-            i = i + 1;
-        };
+        i = i + 1;
+    };
 
-        create_signed_fixed_tensor(copy a.shape, out_mag, out_sign, s * 2)
-    }
+    create_signed_fixed_tensor(copy a.shape, out_mag, out_sign, s) // Keep original scale
+}
+
+
 public fun divide(a: &SignedFixedTensor, b: &SignedFixedTensor): SignedFixedTensor {
         assert!(a.scale == b.scale, 1301);
         let s = a.scale;
